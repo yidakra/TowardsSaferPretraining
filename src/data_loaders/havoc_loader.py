@@ -7,11 +7,23 @@ for evaluating LLM safety across multiple harm dimensions.
 
 import csv
 from pathlib import Path
-from typing import List, Dict, Optional, Any
-from dataclasses import dataclass
+from typing import List, Dict, Optional, Any, Union
+from dataclasses import dataclass, field
+from collections import Counter
 import ast
+import logging
 
 from ..utils.taxonomy import HarmLabel, Dimension
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ModelEvaluation:
+    """Model evaluation result with response, judge, and label."""
+    response: Optional[str] = None
+    judge: Optional[str] = None
+    label: Optional[str] = None
 
 
 @dataclass
@@ -22,39 +34,25 @@ class HAVOCSample:
     prefix: str
     suffix: str
     prefix_label: HarmLabel
+    separator: str = " "
 
     # Optional fields from model evaluation
     snippet: Optional[str] = None
     prefix_gen_gpt_response: Optional[str] = None
 
     # Model responses and judgments
-    llama_3b_response: Optional[str] = None
-    llama_3b_judge: Optional[str] = None
-    llama_3b_label: Optional[str] = None
-
-    llama_1b_response: Optional[str] = None
-    llama_1b_judge: Optional[str] = None
-    llama_1b_label: Optional[str] = None
-
-    mistral_7b_response: Optional[str] = None
-    mistral_7b_judge: Optional[str] = None
-    mistral_7b_label: Optional[str] = None
-
-    gemma_2b_response: Optional[str] = None
-    gemma_2b_judge: Optional[str] = None
-    gemma_2b_label: Optional[str] = None
-
-    gemma_9b_response: Optional[str] = None
-    gemma_9b_judge: Optional[str] = None
-    gemma_9b_label: Optional[str] = None
-
-    gemma_27b_response: Optional[str] = None
-    gemma_27b_judge: Optional[str] = None
-    gemma_27b_label: Optional[str] = None
+    model_evaluations: Dict[str, ModelEvaluation] = field(default_factory=dict)
 
     def get_full_text(self) -> str:
         """Get concatenated prefix + suffix."""
-        return self.prefix + " " + self.suffix
+        # Only insert separator when both parts are present, and trim boundary
+        # whitespace to avoid double spaces/unwanted separators.
+        if self.prefix and self.suffix:
+            prefix = self.prefix.rstrip()
+            suffix = self.suffix.lstrip()
+            return prefix + self.separator + suffix if self.separator else prefix + suffix
+
+        return self.prefix + self.suffix
 
     def is_toxic_prefix(self) -> bool:
         """Check if prefix is toxic."""
@@ -111,6 +109,8 @@ class HAVOCLoader:
             raise FileNotFoundError(f"HAVOC file not found: {filepath}")
 
         self.modeleval_filepath = Path(modeleval_filepath) if modeleval_filepath else None
+        if self.modeleval_filepath and not self.modeleval_filepath.exists():
+            raise FileNotFoundError(f"Model evaluation file not found: {modeleval_filepath}")
         self._samples: Optional[List[HAVOCSample]] = None
 
     def _parse_label_list(self, label_str: str) -> HarmLabel:
@@ -129,12 +129,12 @@ class HAVOCLoader:
 
             # Handle empty or malformed labels
             if not labels or len(labels) != 5:
-                print(f"Warning: Invalid label list '{label_str}', defaulting to all safe")
+                logger.warning(f"Invalid label list '{label_str}', defaulting to all safe")
                 return HarmLabel()  # Returns all safe
 
             return HarmLabel.from_list(labels)
         except Exception as e:
-            print(f"Warning: Failed to parse label '{label_str}': {e}. Defaulting to all safe")
+            logger.warning(f"Failed to parse label '{label_str}': {e}. Defaulting to all safe", exc_info=True)
             return HarmLabel()  # Returns all safe
 
     def load(self, force_reload: bool = False) -> List[HAVOCSample]:
@@ -156,11 +156,18 @@ class HAVOCLoader:
             reader = csv.DictReader(f, delimiter='\t')
 
             for row in reader:
-                prefix_label = self._parse_label_list(row['PrefixLab'])
+                try:
+                    prefix = row['Prefix']
+                    suffix = row['Suffix']
+                    prefix_lab_str = row['PrefixLab']
+                except KeyError as e:
+                    raise ValueError(f"Missing required column {e} in HAVOC TSV") from e
+
+                prefix_label = self._parse_label_list(prefix_lab_str)
 
                 sample = HAVOCSample(
-                    prefix=row['Prefix'],
-                    suffix=row['Suffix'],
+                    prefix=prefix,
+                    suffix=suffix,
                     prefix_label=prefix_label,
                 )
                 samples.append(sample)
@@ -172,44 +179,123 @@ class HAVOCLoader:
         self._samples = samples
         return samples
 
+    def _create_sample_key(self, prefix: str, suffix: str) -> str:
+        """Create a canonicalized key for sample matching."""
+        # Normalize whitespace and concatenate
+        return (prefix.strip() + suffix.strip()).replace('\t', ' ').replace('\n', ' ')
+
+    def _populate_model_evaluations(self, sample: HAVOCSample, eval_row: Dict[str, str]):
+        """Populate model evaluation data for a single sample."""
+        sample.snippet = eval_row.get('Snippet')
+        sample.prefix_gen_gpt_response = eval_row.get('PrefixGenGPTResponse')
+
+        sample.model_evaluations['llama_3b'] = ModelEvaluation(
+            response=eval_row.get('PrefixLlama3BResponse'),
+            judge=eval_row.get('Llama3BJudge'),
+            label=eval_row.get('Llama3BLab')
+        )
+
+        sample.model_evaluations['llama_1b'] = ModelEvaluation(
+            response=eval_row.get('PrefixLlama1BResponse'),
+            judge=eval_row.get('Llama1BJudge'),
+            label=eval_row.get('Llama1BLab')
+        )
+
+        sample.model_evaluations['mistral_7b'] = ModelEvaluation(
+            response=eval_row.get('PrefixMistral7BResponse'),
+            judge=eval_row.get('Mistral7BJudge'),
+            label=eval_row.get('Mistral7BLab')
+        )
+
+        sample.model_evaluations['gemma_2b'] = ModelEvaluation(
+            response=eval_row.get('PrefixGemma2BResponse'),
+            judge=eval_row.get('Gemma2BJudge'),
+            label=eval_row.get('Gemma2BLab')
+        )
+
+        sample.model_evaluations['gemma_9b'] = ModelEvaluation(
+            response=eval_row.get('PrefixGemma9BResponse'),
+            judge=eval_row.get('Gemma9BJudge'),
+            label=eval_row.get('Gemma9BLab')
+        )
+
+        sample.model_evaluations['gemma_27b'] = ModelEvaluation(
+            response=eval_row.get('PrefixGemma27BResponse'),
+            judge=eval_row.get('Gemma27BJudge'),
+            label=eval_row.get('Gemma27BLab')
+        )
+
     def _load_model_evaluations(self, samples: List[HAVOCSample]):
-        """Load model evaluation data and merge with samples."""
+        """
+        Load model evaluation data and merge with samples.
+
+        Uses explicit matching by canonicalized prefix+suffix content rather than
+        fragile index-based matching. Falls back to index-based matching only if
+        explicit matching fails, with clear warnings.
+        """
+        # First pass: read model evaluations into lookup dict
+        model_eval_lookup = {}
         with open(self.modeleval_filepath, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f, delimiter='\t')
+            for row in reader:
+                prefix = (row.get('Prefix') or '').strip()
+                suffix = (row.get('Suffix') or '').strip()
+                if prefix or suffix:  # Skip completely empty rows
+                    key = self._create_sample_key(prefix, suffix)
+                    if key in model_eval_lookup:
+                        logging.warning(f"Duplicate key found in model evaluations: {key[:100]}...")
+                    model_eval_lookup[key] = row
 
-            for idx, row in enumerate(reader):
-                if idx >= len(samples):
+        # Second pass: match and merge with samples
+        matched_count = 0
+        for sample in samples:
+            sample_key = self._create_sample_key(sample.prefix, sample.suffix)
+            eval_row = model_eval_lookup.get(sample_key)
+
+            if eval_row is not None:
+                self._populate_model_evaluations(sample, eval_row)
+                matched_count += 1
+            else:
+                # No explicit match found - this is a problem
+                logging.warning(
+                    f"No matching model evaluation found for sample with prefix: "
+                    f"{sample.prefix[:50]}... and suffix: {sample.suffix[:50]}..."
+                )
+
+        # Log summary statistics
+        total_samples = len(samples)
+        logging.info(
+            f"Model evaluation matching: {matched_count}/{total_samples} samples matched "
+            f"({len(model_eval_lookup)} evaluation rows available)"
+        )
+
+        # Fallback: index-based matching for any remaining unmatched samples
+        # This assumes the files are in the same order and should only be used
+        # as a last resort when explicit matching fails
+        if matched_count < total_samples:
+            logging.warning(
+                f"Falling back to index-based matching for {total_samples - matched_count} "
+                "unmatched samples. This assumes files are in identical order."
+            )
+
+            # Re-read the file for index-based fallback
+            with open(self.modeleval_filepath, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f, delimiter='\t')
+                eval_rows = list(reader)
+
+            for idx, sample in enumerate(samples):
+                if idx >= len(eval_rows):
                     break
 
-                sample = samples[idx]
-
-                # Update with model evaluation data
-                sample.snippet = row.get('Snippet')
-                sample.prefix_gen_gpt_response = row.get('PrefixGenGPTResponse')
-
-                sample.llama_3b_response = row.get('PrefixLlama3BResponse')
-                sample.llama_3b_judge = row.get('Llama3BJudge')
-                sample.llama_3b_label = row.get('Llama3BLab')
-
-                sample.llama_1b_response = row.get('PrefixLlama1BResponse')
-                sample.llama_1b_judge = row.get('Llama1BJudge')
-                sample.llama_1b_label = row.get('Llama1BLab')
-
-                sample.mistral_7b_response = row.get('PrefixMistral7BResponse')
-                sample.mistral_7b_judge = row.get('Mistral7BJudge')
-                sample.mistral_7b_label = row.get('Mistral7BLab')
-
-                sample.gemma_2b_response = row.get('PrefixGemma2BResponse')
-                sample.gemma_2b_judge = row.get('Gemma2BJudge')
-                sample.gemma_2b_label = row.get('Gemma2BLab')
-
-                sample.gemma_9b_response = row.get('PrefixGemma9BResponse')
-                sample.gemma_9b_judge = row.get('Gemma9BJudge')
-                sample.gemma_9b_label = row.get('Gemma9BLab')
-
-                sample.gemma_27b_response = row.get('PrefixGemma27BResponse')
-                sample.gemma_27b_judge = row.get('Gemma27BJudge')
-                sample.gemma_27b_label = row.get('Gemma27BLab')
+                # Only apply fallback if this sample wasn't already matched
+                sample_key = self._create_sample_key(sample.prefix, sample.suffix)
+                if sample_key not in model_eval_lookup:
+                    eval_row = eval_rows[idx]
+                    logging.debug(
+                        f"Index-based fallback: matching sample at index {idx} "
+                        f"with eval row {idx}"
+                    )
+                    self._populate_model_evaluations(sample, eval_row)
 
     def filter_by_leakage_type(self, leakage_type: str) -> List[HAVOCSample]:
         """
@@ -264,7 +350,7 @@ class HAVOCLoader:
 
         for sample in self._samples:
             label = getattr(sample.prefix_label, attr_name)
-            if dimension is None or label == dimension:
+            if (dimension is None and label not in (None, "safe")) or (dimension is not None and label == dimension):
                 filtered.append(sample)
 
         return filtered
@@ -281,10 +367,11 @@ class HAVOCLoader:
 
         total = len(self._samples)
 
-        # Leakage type distribution
-        provocative = len(self.filter_by_leakage_type("provocative"))
-        passive = len(self.filter_by_leakage_type("passive"))
-        neutral = len(self.filter_by_leakage_type("neutral"))
+        # Leakage type distribution - compute in single pass
+        leakage_counts = Counter(sample.get_leakage_type() for sample in self._samples)
+        provocative = leakage_counts["provocative"]
+        passive = leakage_counts["passive"]
+        neutral = leakage_counts["neutral"]
 
         # Per-harm statistics
         harm_stats = {}
@@ -323,8 +410,10 @@ class HAVOCLoader:
             self.load()
         return len(self._samples)
 
-    def __getitem__(self, idx: int) -> HAVOCSample:
-        """Get sample by index."""
+    def __getitem__(self, idx: Union[int, slice]) -> Union[HAVOCSample, List[HAVOCSample]]:
+        """Get sample by index or slice."""
         if self._samples is None:
             self.load()
+        if isinstance(idx, slice):
+            return self._samples[idx]
         return self._samples[idx]

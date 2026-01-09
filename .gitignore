@@ -52,10 +52,13 @@ models/
 *.parquet
 *.arrow
 
-# API keys
+# Secrets and credentials
 .env
 *.key
-*.json
+secrets.json
+credentials.json
+config.secrets.json
+secrets/*.json
 
 # Results
 results/

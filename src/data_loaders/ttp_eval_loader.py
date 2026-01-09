@@ -9,7 +9,6 @@ import csv
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
-import ast
 
 from ..utils.taxonomy import HarmLabel, Dimension
 
@@ -77,6 +76,15 @@ class TTPEvalLoader:
         toxic_samples = loader.filter_by_toxicity(toxic=True)
     """
 
+    # Mapping from short harm category names to attribute names
+    HARM_CATEGORY_MAP = {
+        "H": "hate_violence_label",
+        "IH": "ideological_label",
+        "SE": "sexual_label",
+        "IL": "illegal_label",
+        "SI": "self_inflicted_label",
+    }
+
     def __init__(self, filepath: str):
         """
         Initialize loader.
@@ -108,28 +116,35 @@ class TTPEvalLoader:
         with open(self.filepath, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f, delimiter='\t')
 
+            line_number = 2  # Start at 2 since line 1 is headers
             for row in reader:
-                # Parse labels - handle both "None" and "Intent" formats
-                sample = TTPEvalSample(
-                    url=row['URL'],
-                    lang=row['Lang'],
-                    body=row['Body'],
-                    hate_violence_label=Dimension.from_label(row['Hate&V Lab']),
-                    ideological_label=Dimension.from_label(row['Ideologi Lab']),
-                    sexual_label=Dimension.from_label(row['Sexual Lab']),
-                    illegal_label=Dimension.from_label(row['Illegal Lab']),
-                    self_inflicted_label=Dimension.from_label(row['Self-Infl Lab']),
-                    belonging_threats=row.get('BelongingThreats'),
-                    ttp_output=row.get('TTP_Out'),
-                    ttp_h=row.get('TTP_H'),
-                    ttp_ih=row.get('TTP_IH'),
-                    ttp_se=row.get('TTP_SE'),
-                    ttp_il=row.get('TTP_IL'),
-                    ttp_si=row.get('TTP_SI'),
-                    true_label=row.get('TrueLabel'),
-                    ttp_label=row.get('TTPLabel'),
-                )
-                samples.append(sample)
+                try:
+                    # Parse labels - handle both "None" and "Intent" formats
+                    sample = TTPEvalSample(
+                        url=row['URL'],
+                        lang=row['Lang'],
+                        body=row['Body'],
+                        hate_violence_label=Dimension.from_label(row['Hate&V Lab']),
+                        ideological_label=Dimension.from_label(row['Ideologi Lab']),
+                        sexual_label=Dimension.from_label(row['Sexual Lab']),
+                        illegal_label=Dimension.from_label(row['Illegal Lab']),
+                        self_inflicted_label=Dimension.from_label(row['Self-Infl Lab']),
+                        belonging_threats=row.get('BelongingThreats'),
+                        ttp_output=row.get('TTP_Out'),
+                        ttp_h=row.get('TTP_H'),
+                        ttp_ih=row.get('TTP_IH'),
+                        ttp_se=row.get('TTP_SE'),
+                        ttp_il=row.get('TTP_IL'),
+                        ttp_si=row.get('TTP_SI'),
+                        true_label=row.get('TrueLabel'),
+                        ttp_label=row.get('TTPLabel'),
+                    )
+                    samples.append(sample)
+                except Exception as e:
+                    url = row.get('URL', 'Unknown URL')
+                    raise ValueError(f"Failed to parse row {line_number} (URL: {url}): {e}") from e
+                finally:
+                    line_number += 1
 
         self._samples = samples
         return samples
@@ -176,7 +191,8 @@ class TTPEvalLoader:
 
         Args:
             harm_category: One of "H", "IH", "SE", "IL", "SI"
-            dimension: Optional dimension filter (SAFE, TOPICAL, TOXIC)
+            dimension: Optional dimension filter (SAFE, TOPICAL, TOXIC).
+                     When None, returns samples that contain some harm (i.e., label != SAFE).
 
         Returns:
             Filtered list of samples
@@ -184,23 +200,15 @@ class TTPEvalLoader:
         if self._samples is None:
             self.load()
 
-        harm_map = {
-            "H": "hate_violence_label",
-            "IH": "ideological_label",
-            "SE": "sexual_label",
-            "IL": "illegal_label",
-            "SI": "self_inflicted_label",
-        }
-
-        if harm_category not in harm_map:
+        if harm_category not in TTPEvalLoader.HARM_CATEGORY_MAP:
             raise ValueError(f"Invalid harm category: {harm_category}")
 
-        attr_name = harm_map[harm_category]
+        attr_name = TTPEvalLoader.HARM_CATEGORY_MAP[harm_category]
         filtered = []
 
         for sample in self._samples:
             label = getattr(sample, attr_name)
-            if dimension is None or label == dimension:
+            if (dimension is None and label != Dimension.SAFE) or (dimension is not None and label == dimension):
                 filtered.append(sample)
 
         return filtered
@@ -222,13 +230,7 @@ class TTPEvalLoader:
 
         # Per-harm statistics
         harm_stats = {}
-        for short_name, attr_name in [
-            ("H", "hate_violence_label"),
-            ("IH", "ideological_label"),
-            ("SE", "sexual_label"),
-            ("IL", "illegal_label"),
-            ("SI", "self_inflicted_label"),
-        ]:
+        for short_name, attr_name in TTPEvalLoader.HARM_CATEGORY_MAP.items():
             toxic = len([s for s in self._samples if getattr(s, attr_name) == Dimension.TOXIC])
             topical = len([s for s in self._samples if getattr(s, attr_name) == Dimension.TOPICAL])
             safe = len([s for s in self._samples if getattr(s, attr_name) == Dimension.SAFE])

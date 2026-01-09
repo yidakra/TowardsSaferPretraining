@@ -2,9 +2,13 @@
 Taxonomy definitions for the three-dimensional safety classification framework.
 """
 
+import logging
 from enum import Enum
-from typing import List, Dict, Any
-from dataclasses import dataclass
+from typing import List, Dict
+from dataclasses import dataclass, fields
+
+# Sentinel for default parameter
+_MISSING = object()
 
 
 class HarmCategory(Enum):
@@ -18,25 +22,27 @@ class HarmCategory(Enum):
     @classmethod
     def get_short_names(cls) -> Dict[str, str]:
         """Get mapping from full names to short names."""
+        mapping = cls.get_short_name_mapping()
+        return {category.value: short_name for category, short_name in mapping.items()}
+
+    @classmethod
+    def get_short_name_mapping(cls) -> Dict["HarmCategory", str]:
+        """Get mapping from HarmCategory enum to short name."""
         return {
-            cls.HATE_VIOLENCE.value: "H",
-            cls.IDEOLOGICAL.value: "IH",
-            cls.SEXUAL.value: "SE",
-            cls.ILLEGAL.value: "IL",
-            cls.SELF_INFLICTED.value: "SI",
+            cls.HATE_VIOLENCE: "H",
+            cls.IDEOLOGICAL: "IH",
+            cls.SEXUAL: "SE",
+            cls.ILLEGAL: "IL",
+            cls.SELF_INFLICTED: "SI",
         }
 
     @classmethod
     def from_short_name(cls, short_name: str) -> "HarmCategory":
         """Get HarmCategory from short name."""
-        mapping = {
-            "H": cls.HATE_VIOLENCE,
-            "IH": cls.IDEOLOGICAL,
-            "SE": cls.SEXUAL,
-            "IL": cls.ILLEGAL,
-            "SI": cls.SELF_INFLICTED,
-        }
-        return mapping[short_name]
+        reverse_mapping = {v: k for k, v in cls.get_short_name_mapping().items()}
+        if short_name not in reverse_mapping:
+            raise ValueError(f"Unknown short name: '{short_name}'. Valid options: {list(reverse_mapping.keys())}")
+        return reverse_mapping[short_name]
 
 
 class Dimension(Enum):
@@ -46,7 +52,7 @@ class Dimension(Enum):
     TOXIC = "intent"  # Also called "Intent" in the data (internally uses "intent")
 
     @classmethod
-    def from_label(cls, label: str, default: "Dimension" = None) -> "Dimension":
+    def from_label(cls, label: str, default: "Dimension" = _MISSING) -> "Dimension":
         """
         Parse dimension from various label formats.
 
@@ -57,7 +63,7 @@ class Dimension(Enum):
         Returns:
             Dimension enum value
         """
-        if default is None:
+        if default is _MISSING:
             default = cls.SAFE
 
         label_lower = label.lower().strip()
@@ -69,7 +75,7 @@ class Dimension(Enum):
             return cls.TOXIC
         else:
             # Handle unexpected values gracefully
-            print(f"Warning: Unknown dimension label '{label}', defaulting to {default.value}")
+            logging.warning(f"Unknown dimension label '{label}', defaulting to {default.value}")
             return default
 
 
@@ -84,13 +90,18 @@ class HarmLabel:
 
     def to_dict(self) -> Dict[str, str]:
         """Convert to dictionary format."""
-        return {
-            "H": self.hate_violence.value,
-            "IH": self.ideological.value,
-            "SE": self.sexual.value,
-            "IL": self.illegal.value,
-            "SI": self.self_inflicted.value,
+        # Build mapping from short names to dimension values
+        short_name_mapping = HarmCategory.get_short_name_mapping()
+        attribute_mapping = {
+            HarmCategory.HATE_VIOLENCE: self.hate_violence,
+            HarmCategory.IDEOLOGICAL: self.ideological,
+            HarmCategory.SEXUAL: self.sexual,
+            HarmCategory.ILLEGAL: self.illegal,
+            HarmCategory.SELF_INFLICTED: self.self_inflicted,
         }
+
+        return {short_name_mapping[category]: dimension.value
+                for category, dimension in attribute_mapping.items()}
 
     @classmethod
     def from_dict(cls, data: Dict[str, str]) -> "HarmLabel":
@@ -108,23 +119,24 @@ class HarmLabel:
         """Create from list format: [H, IH, SE, IL, SI]."""
         if len(labels) != 5:
             raise ValueError(f"Expected 5 labels, got {len(labels)}")
-        return cls(
-            hate_violence=Dimension.from_label(labels[0]),
-            ideological=Dimension.from_label(labels[1]),
-            sexual=Dimension.from_label(labels[2]),
-            illegal=Dimension.from_label(labels[3]),
-            self_inflicted=Dimension.from_label(labels[4]),
-        )
+
+        # Define expected order: index -> attribute mapping
+        label_order = [
+            ("hate_violence", 0),
+            ("ideological", 1),
+            ("sexual", 2),
+            ("illegal", 3),
+            ("self_inflicted", 4),
+        ]
+
+        return cls(**{
+            attr_name: Dimension.from_label(labels[index])
+            for attr_name, index in label_order
+        })
 
     def is_toxic(self) -> bool:
         """Check if any harm category is toxic."""
-        return any([
-            self.hate_violence == Dimension.TOXIC,
-            self.ideological == Dimension.TOXIC,
-            self.sexual == Dimension.TOXIC,
-            self.illegal == Dimension.TOXIC,
-            self.self_inflicted == Dimension.TOXIC,
-        ])
+        return any(attr == Dimension.TOXIC for attr in (self.hate_violence, self.ideological, self.sexual, self.illegal, self.self_inflicted))
 
     def is_topical(self) -> bool:
         """Check if any harm category is topical (but not toxic)."""
@@ -139,25 +151,14 @@ class HarmLabel:
 
     def is_safe(self) -> bool:
         """Check if all harm categories are safe."""
-        return all([
-            self.hate_violence == Dimension.SAFE,
-            self.ideological == Dimension.SAFE,
-            self.sexual == Dimension.SAFE,
-            self.illegal == Dimension.SAFE,
-            self.self_inflicted == Dimension.SAFE,
-        ])
+        return all(dim == Dimension.SAFE for dim in (self.hate_violence, self.ideological, self.sexual, self.illegal, self.self_inflicted))
 
     def get_toxic_harms(self) -> List[HarmCategory]:
         """Get list of harm categories that are toxic."""
         toxic_harms = []
-        mapping = [
-            (self.hate_violence, HarmCategory.HATE_VIOLENCE),
-            (self.ideological, HarmCategory.IDEOLOGICAL),
-            (self.sexual, HarmCategory.SEXUAL),
-            (self.illegal, HarmCategory.ILLEGAL),
-            (self.self_inflicted, HarmCategory.SELF_INFLICTED),
-        ]
-        for dim, harm in mapping:
-            if dim == Dimension.TOXIC:
-                toxic_harms.append(harm)
+        for field in fields(self):
+            dimension = getattr(self, field.name)
+            if dimension == Dimension.TOXIC:
+                harm_category = HarmCategory[field.name.upper()]
+                toxic_harms.append(harm_category)
         return toxic_harms
