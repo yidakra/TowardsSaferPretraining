@@ -27,6 +27,7 @@ try:
     from src.models import HarmFormer
     from src.evaluation.metrics import calculate_metrics
     from src.utils.taxonomy import HarmLabel, Dimension
+    from src.utils.codecarbon import maybe_track_emissions
 except ImportError as e:
     print(f"Failed to import required modules: {e}")
     print("Make sure you're running from the project root")
@@ -98,7 +99,8 @@ def main():
         sys.exit(1)
 
     # Evaluate
-    results = evaluate_harmformer(samples, model)
+    with maybe_track_emissions(run_name="harmformer_eval"):
+        results = evaluate_harmformer(samples, model)
 
     # Calculate metrics
     logger.info("Calculating metrics...")

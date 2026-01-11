@@ -46,6 +46,7 @@ try:
     from src.evaluation.metrics import calculate_metrics
     from src.models import HarmFormer
     from src.baselines import PerspectiveAPI, LlamaGuard
+    from src.utils.codecarbon import maybe_track_emissions
 except ImportError as e:
     print(f"Failed to import required modules: {e}")
     print("Make sure you're running from the project root or install the package with: pip install -e .")
@@ -207,12 +208,13 @@ def main():
     # Evaluate each classifier
     results = []
     for name, classifier in classifiers.items():
-        result = evaluate_classifier(
-            classifier=classifier,
-            classifier_name=name,
-            samples=samples,
-            show_progress=True
-        )
+        with maybe_track_emissions(run_name=f"baseline_{name.replace(' ', '_').lower()}"):
+            result = evaluate_classifier(
+                classifier=classifier,
+                classifier_name=name,
+                samples=samples,
+                show_progress=True
+            )
         results.append(result)
 
         # Print summary

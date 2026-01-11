@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data_loaders import HAVOCLoader  # noqa: E402
 from src.utils.taxonomy import HarmLabel, Dimension  # noqa: E402
+from src.utils.codecarbon import maybe_track_emissions  # noqa: E402
 
 
 def _parse_label_list(label_str: str) -> HarmLabel:
@@ -52,7 +53,8 @@ def main() -> int:
     args = parser.parse_args()
 
     loader = HAVOCLoader(args.data_path, modeleval_filepath=args.modeleval_path)
-    samples = loader.load()
+    with maybe_track_emissions(run_name=f"havoc_modeleval_{args.model_key}"):
+        samples = loader.load()
 
     harm_leakage = {
         "H": {"neutral": 0, "passive": 0, "provocative": 0},

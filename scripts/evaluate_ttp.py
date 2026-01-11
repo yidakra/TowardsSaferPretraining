@@ -36,6 +36,7 @@ from src.data_loaders import TTPEvalLoader
 from src.evaluation import TTPEvaluator, calculate_metrics, print_metrics
 from src.evaluation.ttp_evaluator import TTPResult
 from src.utils.taxonomy import HarmLabel
+from src.utils.codecarbon import maybe_track_emissions
 
 
 def main():
@@ -76,50 +77,51 @@ def main():
 
     # Evaluate
     results = []
-    with tqdm(total=len(samples), desc="Evaluating samples", unit="sample") as pbar:
-        for i, sample in enumerate(samples):
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    result = evaluator.evaluate(sample.url, sample.body)
-                    results.append(result)
-                    pbar.update(1)
-                    pbar.set_postfix({
-                        'sample': f'{i+1}/{len(samples)}',
-                        'status': 'success',
-                        'attempts': attempt + 1
-                    })
-                    break
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        pbar.set_postfix({
-                            'sample': f'{i+1}/{len(samples)}',
-                            'status': 'retrying',
-                            'attempts': attempt + 1
-                        })
-                        print(f"Warning: Evaluation failed for sample {i} (attempt {attempt + 1}/{max_retries}): {e}")
-                        print(f"Sample identifier: {getattr(sample, 'url', 'unknown')}")
-                        print("Retrying in 5 seconds...")
-                        time.sleep(5)
-                    else:
-                        pbar.set_postfix({
-                            'sample': f'{i+1}/{len(samples)}',
-                            'status': 'failed',
-                            'attempts': attempt + 1
-                        })
-                        print(f"Error: Evaluation failed for sample {i} after {max_retries} attempts: {e}")
-                        print(f"Sample identifier: {getattr(sample, 'url', 'unknown')}")
-                        # Append a failure marker or partial result (fail-open label, keep error)
-                        failure_result = TTPResult(
-                            url=getattr(sample, "url", "unknown"),
-                            body=getattr(sample, "body", ""),
-                            predicted_label=HarmLabel(),
-                            reasoning="Evaluation failed after retries",
-                            error=str(e),
-                        )
-                        results.append(failure_result)
+    with maybe_track_emissions(run_name="evaluate_ttp"):
+        with tqdm(total=len(samples), desc="Evaluating samples", unit="sample") as pbar:
+            for i, sample in enumerate(samples):
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        result = evaluator.evaluate(sample.url, sample.body)
+                        results.append(result)
                         pbar.update(1)
-                        print("Continuing with next sample...")
+                        pbar.set_postfix({
+                            'sample': f'{i+1}/{len(samples)}',
+                            'status': 'success',
+                            'attempts': attempt + 1
+                        })
+                        break
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            pbar.set_postfix({
+                                'sample': f'{i+1}/{len(samples)}',
+                                'status': 'retrying',
+                                'attempts': attempt + 1
+                            })
+                            print(f"Warning: Evaluation failed for sample {i} (attempt {attempt + 1}/{max_retries}): {e}")
+                            print(f"Sample identifier: {getattr(sample, 'url', 'unknown')}")
+                            print("Retrying in 5 seconds...")
+                            time.sleep(5)
+                        else:
+                            pbar.set_postfix({
+                                'sample': f'{i+1}/{len(samples)}',
+                                'status': 'failed',
+                                'attempts': attempt + 1
+                            })
+                            print(f"Error: Evaluation failed for sample {i} after {max_retries} attempts: {e}")
+                            print(f"Sample identifier: {getattr(sample, 'url', 'unknown')}")
+                            # Append a failure marker or partial result (fail-open label, keep error)
+                            failure_result = TTPResult(
+                                url=getattr(sample, "url", "unknown"),
+                                body=getattr(sample, "body", ""),
+                                predicted_label=HarmLabel(),
+                                reasoning="Evaluation failed after retries",
+                                error=str(e),
+                            )
+                            results.append(failure_result)
+                            pbar.update(1)
+                            print("Continuing with next sample...")
 
     # Calculate metrics
     predictions = [r.predicted_label for r in results]
