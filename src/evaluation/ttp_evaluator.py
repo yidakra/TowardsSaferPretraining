@@ -115,14 +115,27 @@ class TTPEvaluator:
 
         self.system_message = system_match.group(1).strip()
 
-        # Extract user message template from prompt, fallback to hardcoded if not found
-        user_match = re.search(
+        # Extract user message template.
+        # IMPORTANT: the prompt file includes multiple examples; we must select the *template*
+        # that contains placeholders (#URL#, #Body#), not the first example block.
+        user_blocks = re.findall(
             r'<\|im_start\|>user\s*(.*?)<\|im_end\|>',
             self.prompt_template,
             re.DOTALL
         )
-        if user_match:
-            self.user_template = user_match.group(1).strip()
+        chosen: Optional[str] = None
+        if user_blocks:
+            # Prefer the last block that looks like a template.
+            for blk in reversed(user_blocks):
+                if "#URL#" in blk and "#Body#" in blk:
+                    chosen = blk.strip()
+                    break
+            # Fallback: use the last user block if no placeholders found.
+            if chosen is None:
+                chosen = user_blocks[-1].strip()
+
+        if chosen:
+            self.user_template = chosen
         else:
             # Fallback to hardcoded template
             logger.warning(
@@ -194,6 +207,17 @@ class TTPEvaluator:
 
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed for {url}: {e}")
+                # If this is a rate-limit response, respect the server-provided backoff.
+                # Example message contains: "Please try again in 7.156s."
+                try:
+                    msg = str(e)
+                    m = re.search(r"try again in\\s+([0-9]+\\.?[0-9]*)s", msg, re.IGNORECASE)
+                    if m:
+                        wait_s = float(m.group(1))
+                        time.sleep(max(wait_s, self.retry_delay))
+                        continue
+                except Exception:
+                    pass
                 if attempt < self.max_retries - 1:
                     time.sleep(self.retry_delay)
                 else:
@@ -212,6 +236,13 @@ class TTPEvaluator:
         
         # This should never be reached, but mypy requires it
         raise RuntimeError("Unexpected execution path in evaluate method")
+
+    def predict(self, text: str) -> HarmLabel:
+        """
+        Baseline-compatible API: classify a single text and return a HarmLabel.
+        """
+        result = self.evaluate(url="ttp://text", body=text)
+        return result.predicted_label
 
     def _parse_response(self, content: str) -> tuple[HarmLabel, Optional[str]]:
         """

@@ -1,14 +1,14 @@
 #!/bin/bash
-set -euo pipefail
-
 #SBATCH --job-name=baselines
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu_a100
 #SBATCH --gpus-per-node=1
 #SBATCH --time=02:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
 #SBATCH --output=logs/baselines_%j.out
 #SBATCH --error=logs/baselines_%j.err
+
+set -euo pipefail
 
 # Create logs directory
 mkdir -p logs
@@ -39,12 +39,50 @@ source venv/bin/activate || {
     exit 1
 }
 
+# Load API keys from .env if present, otherwise from example.env.
+# (Some environments block writing dotfiles; scripts also support example.env fallback.)
+if [ -f ".env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source ".env"
+  set +a
+elif [ -f "example.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "example.env"
+  set +a
+fi
+
 # Create output directory
 mkdir -p results/baselines
+
+# Select baselines based on available credentials.
+BASELINES=("harmformer")
+EXTRA_ARGS=()
+
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  BASELINES+=("ttp")
+  EXTRA_ARGS+=(--openai-key "$OPENAI_API_KEY")
+fi
+
+# Llama Guard is often gated (Meta terms acceptance required). Only run if explicitly enabled.
+if [ "${ENABLE_LLAMA_GUARD:-0}" = "1" ]; then
+  BASELINES+=("llama_guard")
+else
+  echo "Info: skipping llama_guard baseline (set ENABLE_LLAMA_GUARD=1 in .env to enable)." >&2
+fi
+
+if [ -n "${PERSPECTIVE_API_KEY:-}" ]; then
+  BASELINES+=("perspective")
+  EXTRA_ARGS+=(--perspective-key "$PERSPECTIVE_API_KEY")
+fi
 
 # Run baseline comparison
 # This reproduces Table 4 (TTP vs Perspective API) and Table 7 (OpenAI Moderation dataset)
 if python scripts/compare_baselines.py \
+  --baselines "${BASELINES[@]}" \
+  --device cuda \
+  "${EXTRA_ARGS[@]}" \
   --output results/baselines/baseline_comparison.json; then
     echo "Baseline comparison complete!"
     echo "Results saved to: results/baselines/baseline_comparison.json"

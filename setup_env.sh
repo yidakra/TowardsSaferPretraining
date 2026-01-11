@@ -1,11 +1,11 @@
 #!/bin/bash
-# Enable strict error handling
-set -euo pipefail
-
 #SBATCH --job-name=setup_env
-#SBATCH --partition=thin
+#SBATCH --partition=rome
 #SBATCH --time=00:30:00
 #SBATCH --mem=8G
+
+# Enable strict error handling
+set -euo pipefail
 
 module purge
 module load 2023

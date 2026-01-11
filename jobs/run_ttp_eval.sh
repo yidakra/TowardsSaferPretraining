@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=ttp_eval
-#SBATCH --partition=thin
+#SBATCH --partition=rome
 #SBATCH --time=02:00:00
 #SBATCH --mem=16G
 #SBATCH --output=%x_%j.out
@@ -24,15 +24,10 @@ module purge
 module load 2023
 module load Python/3.11.3-GCCcore-12.3.0
 
-# Set project directory from environment or fallback
-if [ -z "${PROJECT_DIR:-}" ]; then
-  candidate="${0%/*}/.."
-  if [ -d "$candidate" ]; then
-    PROJECT_DIR="$candidate"
-  else
-    PROJECT_DIR="$HOME/TowardsSaferPretraining"
-  fi
-fi
+# Set project directory.
+# In Slurm, $0 can point to the copied slurm_script under /var/spool, so deriving
+# PROJECT_DIR from ${0%/*} is unreliable. Prefer SLURM_SUBMIT_DIR.
+PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$HOME/TowardsSaferPretraining}}"
 
 # Change to project directory with error checking
 cd "$PROJECT_DIR" || {

@@ -27,7 +27,12 @@ from pathlib import Path
 
 try:
     from dotenv import load_dotenv  # type: ignore
-    load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
+    # Prefer .env, but fall back to example.env (repo ships example.env, .env may be blocked by policies).
+    project_root = Path(__file__).parent.parent
+    env_path = project_root / ".env"
+    if not env_path.exists():
+        env_path = project_root / "example.env"
+    load_dotenv(dotenv_path=env_path)
 except Exception:
     pass
 

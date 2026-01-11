@@ -1,14 +1,14 @@
 #!/bin/bash
-set -euo pipefail
-
 #SBATCH --job-name=harmformer_eval
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu_a100
 #SBATCH --gpus-per-node=1
 #SBATCH --time=00:30:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
 #SBATCH --output=logs/harmformer_eval_%j.out
 #SBATCH --error=logs/harmformer_eval_%j.err
+
+set -euo pipefail
 
 # Create logs directory
 mkdir -p logs

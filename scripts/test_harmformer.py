@@ -70,7 +70,7 @@ def main():
     parser = argparse.ArgumentParser(description="Test HarmFormer on TTP-Eval")
     parser.add_argument("--data-path", default="data/TTP-Eval/TTPEval.tsv",
                        help="Path to TTP-Eval dataset")
-    parser.add_argument("--output", default="results/harmformer_eval/results.json",
+    parser.add_argument("--output", default="results/harmformer/harmformer_results.json",
                        help="Output JSON file")
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu", "mps"],
                        help="Device to run on")

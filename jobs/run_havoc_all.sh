@@ -1,7 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=havoc_all
-#SBATCH --partition=gpu
-#SBATCH --gpus-per-node=1
+#SBATCH --partition=rome
 #SBATCH --time=24:00:00
 #SBATCH --mem=64G
 #SBATCH --output=logs/%x_%j.out
@@ -16,7 +15,6 @@ mkdir -p logs
 module purge
 module load 2023
 module load Python/3.11.3-GCCcore-12.3.0
-module load CUDA/12.1.1
 
 # Change to project directory with error checking
 cd "$HOME/TowardsSaferPretraining" || {
@@ -31,39 +29,38 @@ source venv/bin/activate || {
 }
 
 # Verify script exists
-if [ ! -f "scripts/evaluate_havoc.py" ]; then
-    echo "Error: evaluate_havoc.py script not found" >&2
+if [ ! -f "scripts/evaluate_havoc_modeleval.py" ]; then
+    echo "Error: evaluate_havoc_modeleval.py script not found" >&2
     exit 1
 fi
 
 # Create output directory
 mkdir -p results/havoc
 
-# Models from the paper
-MODELS=(
-  "google/gemma-2-2b"
-  "google/gemma-2-9b"
-  "google/gemma-2-27b"
-  "meta-llama/Llama-3.2-1B"
-  "meta-llama/Llama-3.2-3B"
-  "mistralai/Mistral-7B-v0.3"
+# Model keys present in data/HAVOC/havoc_modeleval.tsv
+MODEL_KEYS=(
+  "gemma_2b"
+  "gemma_9b"
+  "gemma_27b"
+  "llama_1b"
+  "llama_3b"
+  "mistral_7b"
 )
 
 # Run evaluation for each model
 FAILED_MODELS=()
-for model in "${MODELS[@]}"; do
-  model_name=$(echo "$model" | cut -d'/' -f2)
-  echo "Evaluating $model_name..."
+for model_key in "${MODEL_KEYS[@]}"; do
+  echo "Evaluating modeleval leakage for $model_key..."
 
-  if python scripts/evaluate_havoc.py \
-    --model "$model" \
-    --backend transformers \
-    --device cuda \
-    --output "results/havoc/${model_name}_results.json"; then
-    echo "Completed: $model_name"
+  if python scripts/evaluate_havoc_modeleval.py \
+    --data-path data/HAVOC/havoc.tsv \
+    --modeleval-path data/HAVOC/havoc_modeleval.tsv \
+    --model-key "$model_key" \
+    --output "results/havoc/${model_key}_results.json"; then
+    echo "Completed: $model_key"
   else
-    echo "Failed: $model_name" >&2
-    FAILED_MODELS+=("$model_name")
+    echo "Failed: $model_key" >&2
+    FAILED_MODELS+=("$model_key")
   fi
 done
 
