@@ -53,7 +53,9 @@ models/
 *.arrow
 
 # Secrets and credentials
-.env*
+.env
+.env.*
+!.env.example
 *.key
 secrets.json
 credentials.json
