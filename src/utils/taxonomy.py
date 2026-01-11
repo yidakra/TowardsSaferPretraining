@@ -88,7 +88,19 @@ class Dimension(Enum):
 
 @dataclass
 class HarmLabel:
-    """Represents harm labels across all categories."""
+    """Represents harm labels across all categories.
+
+    This class implements a dominance hierarchy where toxic dimensions take precedence
+    over topical ones. If any harm category has a toxic dimension, the label is considered
+    toxic overall, even if other categories have topical dimensions.
+
+    Note: Toxicity Dominance Rule
+    Any Dimension.TOXIC value takes precedence over Dimension.TOPICAL values.
+    This means:
+    - is_toxic() returns True if any category has toxic dimension
+    - is_topical() returns False if any category has toxic dimension, even if other categories are topical
+    - is_safe() returns True only if all categories are safe
+    """
     hate_violence: Dimension = Dimension.SAFE
     ideological: Dimension = Dimension.SAFE
     sexual: Dimension = Dimension.SAFE

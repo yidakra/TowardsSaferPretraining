@@ -1,6 +1,6 @@
 """Tests for evaluation metrics."""
 
-import pytest  # type: ignore
+import pytest
 from src.evaluation.metrics import calculate_metrics
 from src.utils.taxonomy import HarmLabel, Dimension
 

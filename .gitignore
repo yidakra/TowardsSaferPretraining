@@ -19,6 +19,9 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Virtual environments
 venv/
@@ -32,14 +35,15 @@ ENV/
 *.swp
 *.swo
 *~
+pyrightconfig.json
+.pyright/
 
 # Jupyter
 .ipynb_checkpoints
 *.ipynb
 
-# Logs
+# Logs (keep directory, ignore contents)
 *.log
-logs/
 
 # Model checkpoints
 checkpoints/
@@ -62,10 +66,16 @@ credentials.json
 config.secrets.json
 secrets/*.json
 
-# Results
-results/
-outputs/
-experiments/
+# Large data files (but keep results directories)
+datasets/samples/*.jsonl
+*.parquet.tmp
+
+# Temporary/test files
+generate_havoc_report.py
+*_temp.py
+test_*.json
+*.bak
+*.tmp
 
 # OS
 .DS_Store

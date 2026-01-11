@@ -28,7 +28,8 @@ class TestTransformersGenerator:
         )
         assert generator.max_new_tokens == 10
         assert generator.temperature == 0.7
+        assert generator.model.config.name_or_path is not None
         assert "gpt2" in generator.model.config.name_or_path
-        assert generator.do_sample is False  # default value
+        assert generator.do_sample is True  # enabled automatically when temperature > 0
         assert generator.low_cpu_mem_usage is False  # default value
         assert generator.trust_remote_code is False  # default value

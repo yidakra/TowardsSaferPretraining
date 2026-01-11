@@ -14,6 +14,9 @@ module load Python/3.11.3-GCCcore-12.3.0
 # Use environment variable for virtualenv path with sensible default
 VENV_DIR="${VENV_DIR:-./venv}"
 
+# Use environment variable for requirements file path with sensible default
+REQUIREMENTS_FILE="${REQUIREMENTS_FILE:-requirements.txt}"
+
 # Check if virtualenv already exists
 if [ -d "$VENV_DIR" ]; then
     echo "Virtual environment already exists at $VENV_DIR"
@@ -29,10 +32,10 @@ source "$VENV_DIR/bin/activate"
 pip install --upgrade pip
 
 # Install dependencies
-if [ -f requirements.txt ]; then
-    pip install -r requirements.txt
+if [ -f "$REQUIREMENTS_FILE" ]; then
+    pip install -r "$REQUIREMENTS_FILE"
 else
-    echo "Error: requirements.txt not found" >&2
+    echo "Error: Requirements file '$REQUIREMENTS_FILE' not found in $(pwd)" >&2
     exit 1
 fi
 

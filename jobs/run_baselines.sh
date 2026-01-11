@@ -28,7 +28,7 @@ module load CUDA/12.1.1 || {
 }
 
 # Change to project directory
-cd $HOME/TowardsSaferPretraining || {
+cd "$HOME/TowardsSaferPretraining" || {
     echo "Error: Failed to change to project directory" >&2
     exit 1
 }

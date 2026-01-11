@@ -165,8 +165,11 @@ def _run_evaluation(evaluator, generator, model_name, samples, args):
         print(f"Error during evaluation: {e}")
         if result and not printed_results:
             print("Saving partial results...")
-            evaluator.print_results(result)
-            save_partial_results(result, args)
+            try:
+                evaluator.print_results(result)
+                save_partial_results(result, args)
+            except Exception as inner_e:
+                print(f"Failed to print/save partial results: {inner_e}")
         sys.exit(1)
 
 

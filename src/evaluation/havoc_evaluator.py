@@ -60,6 +60,17 @@ class HAVOCEvaluationResult:
     # Individual results
     results: List[LeakageResult] = field(default_factory=list)
 
+    def __post_init__(self):
+        """Validate data integrity after initialization."""
+        subcategory_sum = self.neutral_total + self.passive_total + self.provocative_total
+        if self.total_samples != subcategory_sum:
+            raise ValueError(
+                f"Data integrity violation: total_samples ({self.total_samples}) must equal "
+                f"sum of subcategory totals ({subcategory_sum}). "
+                f"neutral_total={self.neutral_total}, passive_total={self.passive_total}, "
+                f"provocative_total={self.provocative_total}"
+            )
+
     def get_leakage_percentages(self) -> Dict[str, float]:
         """Calculate leakage percentages."""
         return {
@@ -119,7 +130,7 @@ class HAVOCEvaluator:
         if judge == "harmformer":
             if not HARMFORMER_AVAILABLE:
                 raise RuntimeError("HarmFormer required. Install: pip install torch transformers")
-            self.harmformer = HarmFormer(device=device)
+            self.harmformer = HarmFormer(device=device)  # type: ignore
             self.ttp = None
         elif judge == "ttp":
             # Paper definition uses TTP to label both prefix and prefix+generation.
@@ -151,7 +162,7 @@ class HAVOCEvaluator:
 
         result = HAVOCEvaluationResult(
             model_name=model_name,
-            total_samples=len(samples)
+            total_samples=0  # Will be set to sum of subcategory totals at end
         )
 
         # Process samples
@@ -173,11 +184,13 @@ class HAVOCEvaluator:
                 full_generation = sample.prefix + " " + generated_text
 
                 if self.judge == "harmformer":
+                    assert self.harmformer is not None, "HarmFormer should be initialized when judge='harmformer'"
                     leakage_type = sample.get_leakage_type()
                     response_label = self.harmformer.predict(full_generation)
                 else:
                     # Tier-1 paper reproduction: leakage type is determined by TTP(prefix),
                     # and leakage is determined by TTP(prefix+generation).
+                    assert self.ttp is not None, "TTP should be initialized when judge='ttp'"
                     prefix_result = self.ttp.evaluate(url="havoc://prefix", body=sample.prefix)
                     prefix_label = prefix_result.predicted_label
 
@@ -188,11 +201,26 @@ class HAVOCEvaluator:
                     else:
                         leakage_type = "neutral"
 
-                    response_result = self.ttp.evaluate(url="havoc://full", body=full_generation)
+                    response_result = self.ttp.evaluate(url="havoc://full", body=full_generation)  # type: ignore
                     response_label = response_result.predicted_label
                     ttp_error = prefix_result.error or response_result.error
                     if prefix_result.error and response_result.error:
                         ttp_error = f"prefix_error={prefix_result.error}; response_error={response_result.error}"
+
+                    # Check for TTP API errors
+                    if ttp_error:
+                        result.error_count += 1
+                        leak_result = LeakageResult(
+                            sample=sample,
+                            generated_text=generated_text,
+                            full_generation=full_generation,
+                            response_label=HarmLabel(),
+                            leaked=False,
+                            leakage_type=leakage_type,
+                            error=ttp_error
+                        )
+                        result.results.append(leak_result)
+                        continue
 
                 # Update totals
                 if leakage_type == "neutral":
@@ -249,10 +277,13 @@ class HAVOCEvaluator:
                     full_generation=sample.prefix,
                     response_label=HarmLabel(),
                     leaked=False,
-                    leakage_type=leakage_type,
+                    leakage_type=leakage_type or "neutral",
                     error=str(e)
                 )
                 result.results.append(leak_result)
+
+        # Set total_samples to count of successfully processed samples
+        result.total_samples = result.neutral_total + result.passive_total + result.provocative_total
 
         logger.info(f"Evaluation complete. Overall leakage: {result.get_leakage_percentages()['overall']:.2f}%")
 

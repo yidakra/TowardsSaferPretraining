@@ -66,6 +66,13 @@ def calculate_metrics(
 
     # Calculate per-sample metrics
     for pred, truth in zip(predictions, ground_truth):
+        # Validate that sample objects have required attributes
+        for attr_name in short_to_attr.values():
+            if not hasattr(pred, attr_name):
+                raise AttributeError(f"Prediction object missing required attribute '{attr_name}'")
+            if not hasattr(truth, attr_name):
+                raise AttributeError(f"Ground truth object missing required attribute '{attr_name}'")
+
         # Overall: check if any harm is toxic
         if dimension == "toxic":
             pred_positive = pred.is_toxic()
@@ -86,10 +93,6 @@ def calculate_metrics(
 
         # Per-harm metrics
         for harm_code, attr_name in short_to_attr.items():
-            if not hasattr(pred, attr_name):
-                raise AttributeError(f"Prediction object missing required attribute '{attr_name}' for harm code '{harm_code}'")
-            if not hasattr(truth, attr_name):
-                raise AttributeError(f"Ground truth object missing required attribute '{attr_name}' for harm code '{harm_code}'")
             pred_dim = getattr(pred, attr_name)
             truth_dim = getattr(truth, attr_name)
 

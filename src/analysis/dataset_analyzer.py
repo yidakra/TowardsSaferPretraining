@@ -5,18 +5,23 @@ Applies TTP to sampled web pages and generates statistics.
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, cast, TYPE_CHECKING
 from dataclasses import dataclass, field
 
 from ..evaluation import TTPEvaluator, TTPResult
 from ..utils.taxonomy import Dimension
+
+if TYPE_CHECKING:
+    from ..models import HarmFormer
 
 logger = logging.getLogger(__name__)
 
 try:
     from ..models import HarmFormer
     HARMFORMER_AVAILABLE = True
+    HarmFormerClass = cast(type, HarmFormer)  # type: ignore
 except ImportError:
+    HarmFormerClass = None  # type: ignore
     HARMFORMER_AVAILABLE = False
     logger.warning("HarmFormer not available. Install torch and transformers to use it.")
 
@@ -95,6 +100,9 @@ class DatasetAnalyzer:
         print(result.get_percentages())
     """
 
+    harmformer: Optional["HarmFormer"]
+    evaluator: Optional[TTPEvaluator]
+
     _HARM_ATTRS = {
         "H": "hate_violence",
         "IH": "ideological",
@@ -126,7 +134,8 @@ class DatasetAnalyzer:
         if use_harmformer:
             if not HARMFORMER_AVAILABLE:
                 raise RuntimeError("HarmFormer requires torch and transformers. Install with: pip install torch transformers")
-            self.harmformer = HarmFormer(device=device)
+            assert HarmFormerClass is not None  # Type checker hint
+            self.harmformer = HarmFormerClass(device=device)
             self.evaluator = None
         else:
             # Validate api_key before creating TTPEvaluator
@@ -166,6 +175,7 @@ class DatasetAnalyzer:
         # Evaluate all samples
         if self.use_harmformer:
             # Use HarmFormer (fast, local)
+            assert self.harmformer is not None  # Type checker hint
             texts = [body for _, body in samples]
             predicted_labels = self.harmformer.predict_batch(texts, show_progress=show_progress)
 
@@ -180,6 +190,7 @@ class DatasetAnalyzer:
             ]
         else:
             # Use TTP (slow, requires API key)
+            assert self.evaluator is not None  # Type checker hint
             ttp_results = self.evaluator.evaluate_batch(samples, show_progress=show_progress)
 
         # Initialize result
@@ -252,7 +263,7 @@ class DatasetAnalyzer:
                     comparison["per_harm"][harm_code][result.dataset_name] = {"toxic": 0, "topical": 0, "safe": 0}
                 else:
                     per_harm_data = percentages.get("per_harm", {})
-                    comparison["per_harm"][harm_code][result.dataset_name] = per_harm_data.get(harm_code, {})
+                    comparison["per_harm"][harm_code][result.dataset_name] = per_harm_data.get(harm_code, {"toxic": 0, "topical": 0, "safe": 0})
 
         return comparison
 
@@ -331,6 +342,8 @@ class DatasetAnalyzer:
     def get_stats(self) -> Dict[str, Any]:
         """Get evaluator statistics."""
         if self.use_harmformer:
+            assert self.harmformer is not None  # Type checker hint
             return {"model": "HarmFormer", "device": self.harmformer.device}
         else:
+            assert self.evaluator is not None  # Type checker hint
             return self.evaluator.get_stats()

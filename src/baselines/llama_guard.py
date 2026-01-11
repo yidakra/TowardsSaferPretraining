@@ -112,9 +112,9 @@ Provide your safety assessment for User in the above conversation:
 
         # Determine target device
         if device is None:
-            if torch.cuda.is_available():
+            if torch.cuda.is_available():  # type: ignore
                 device = "cuda"
-            elif torch.backends.mps.is_available():
+            elif torch.backends.mps.is_available():  # type: ignore
                 device = "mps"
             else:
                 device = "cpu"
@@ -122,16 +122,16 @@ Provide your safety assessment for User in the above conversation:
         self.device = device
 
         logger.info(f"Loading Llama Guard from {model_name}...")
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)  # type: ignore
+        self.model = AutoModelForCausalLM.from_pretrained(  # type: ignore
             model_name,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,  # type: ignore
             device_map="auto" if self.device == "cuda" else None,
         )
 
         # Move model to device only when device_map is not used (device_map handles placement automatically)
         if self.device != "cuda":
-            self.model.to(self.device)
+            self.model.to(self.device)  # type: ignore
 
         self.model.eval()
         logger.info(f"Llama Guard loaded on {self.device}")
@@ -158,7 +158,7 @@ Provide your safety assessment for User in the above conversation:
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
 
         # Generate
-        with torch.no_grad():
+        with torch.no_grad():  # type: ignore
             outputs = self.model.generate(
                 **inputs,
                 max_new_tokens=100,
@@ -281,7 +281,6 @@ Provide your safety assessment for User in the above conversation:
                 return self.categories_to_label(violated_categories)
             elif is_unsafe:
                 # Model detected unsafe content but didn't specify categories
-                logger.warning(f"LlamaGuard detected unsafe content but provided no violated categories for text: {text[:100]}...")
                 return HarmLabel()  # Return all-safe label with warning
             else:
                 return HarmLabel()  # All safe

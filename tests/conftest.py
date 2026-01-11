@@ -65,16 +65,26 @@ def require_api_key(request):
 
 @pytest.fixture(autouse=True)
 def require_dataset(request, has_ttp_eval, has_havoc):
-    """Skip tests marked with requires_dataset if dataset files are missing."""
-    if request.node.get_closest_marker("requires_dataset"):
-        missing_datasets = []
-        if not has_ttp_eval:
-            missing_datasets.append("TTP-Eval")
-        if not has_havoc:
-            missing_datasets.append("HAVOC")
+    """Skip tests marked with requires_dataset, requires_ttp_eval, or requires_havoc if dataset files are missing."""
+    missing_datasets = set()
 
-        if missing_datasets:
-            pytest.skip(f"Required datasets not available: {', '.join(missing_datasets)}")
+    # Check for granular markers
+    if request.node.get_closest_marker("requires_ttp_eval"):
+        if not has_ttp_eval:
+            missing_datasets.add("TTP-Eval")
+    if request.node.get_closest_marker("requires_havoc"):
+        if not has_havoc:
+            missing_datasets.add("HAVOC")
+
+    # Check for backward compatibility with generic requires_dataset marker
+    if request.node.get_closest_marker("requires_dataset"):
+        if not has_ttp_eval:
+            missing_datasets.add("TTP-Eval")
+        if not has_havoc:
+            missing_datasets.add("HAVOC")
+
+    if missing_datasets:
+        pytest.skip(f"Required datasets not available: {', '.join(sorted(missing_datasets))}")
 
 
 def pytest_configure(config):
@@ -87,4 +97,10 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers", "requires_api_key: mark test as requiring API key"
+    )
+    config.addinivalue_line(
+        "markers", "requires_ttp_eval: mark test as requiring TTP-Eval dataset"
+    )
+    config.addinivalue_line(
+        "markers", "requires_havoc: mark test as requiring HAVOC dataset"
     )

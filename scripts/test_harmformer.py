@@ -54,7 +54,7 @@ def evaluate_harmformer(samples: List[TTPEvalSample], model: HarmFormer) -> Dict
 
     for sample in tqdm(samples, desc="Processing samples"):
         # Get prediction from HarmFormer (returns HarmLabel)
-        result = model.predict(sample.text)
+        result = model.predict(sample.body)
         predictions.append(result)
 
         # Get ground truth HarmLabel from sample
@@ -104,10 +104,10 @@ def main():
     logger.info("Calculating metrics...")
     try:
         metrics = calculate_metrics(
-            results["ground_truth"],
-            results["predictions"]
+            results["predictions"],
+            results["ground_truth"]
         )
-    except (ValueError, TypeError, Exception) as e:
+    except (ValueError, TypeError) as e:
         logger.error(
             f"Failed to calculate metrics: {e}. "
             f"Ground truth type: {type(results['ground_truth'])}, "

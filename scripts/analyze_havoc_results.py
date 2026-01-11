@@ -2,7 +2,6 @@
 """Aggregate HAVOC results across all models."""
 
 import json
-import os
 from pathlib import Path
 
 results_dir = Path("results/havoc")
@@ -33,7 +32,9 @@ if not all_results:
 # Calculate aggregated metrics
 def format_metric(value):
     try:
-        return f"{float(value):.2f}%" if isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '').isdigit()) else "N/A"
+        # Strip whitespace and optional percent signs, then convert to float
+        cleaned_value = str(value).strip().rstrip('%').strip()
+        return f"{float(cleaned_value):.2f}%"
     except (ValueError, TypeError):
         return "N/A"
 
@@ -55,10 +56,9 @@ for result in all_results:
 
 # Save aggregated results
 try:
-    os.makedirs(results_dir, exist_ok=True)
     with open("results/havoc/aggregated_results.json", "w") as f:
         json.dump(all_results, f, indent=2)
     print("Aggregated results saved to: results/havoc/aggregated_results.json")
-except Exception as e:
+except OSError as e:
     print(f"Error saving aggregated results: {e}")
     exit(1)

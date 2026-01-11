@@ -9,12 +9,10 @@ def load_json(path):
     try:
         with open(path) as f:
             return json.load(f)
-    except FileNotFoundError as e:
-        raise RuntimeError(f"JSON file not found: {path} ({e})") from e
+    except OSError as e:
+        raise RuntimeError(f"I/O error accessing JSON file: {path} ({e})") from e
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Malformed JSON in file: {path} ({e})") from e
-    except PermissionError as e:
-        raise RuntimeError(f"Permission denied accessing file: {path} ({e})") from e
 
 print("=" * 80)
 print("REPRODUCTION REPORT - Mendu et al. 2025")
@@ -118,8 +116,6 @@ if havoc_files:
 
         except RuntimeError as e:
             print(f"Warning: Could not load HAVOC results from {havoc_file}: {e}")
-        except json.JSONDecodeError as e:
-            print(f"Warning: Could not parse JSON in {havoc_file}: {e}")
         except Exception as e:
             print(f"Warning: Error processing {havoc_file}: {e}")
 

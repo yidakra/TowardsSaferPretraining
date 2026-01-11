@@ -74,7 +74,7 @@ class PerspectiveAPI:
 
         # Build API client
         try:
-            self.client = discovery.build(
+            self.client = discovery.build(  # type: ignore
                 "commentanalyzer",
                 "v1alpha1",
                 developerKey=api_key,
@@ -126,7 +126,7 @@ class PerspectiveAPI:
 
                 return scores
 
-            except HttpError as e:
+            except HttpError as e:  # type: ignore
                 if e.resp.status == 429 or (500 <= e.resp.status < 600):  # Rate limit or server error
                     wait_time = 2 ** attempt
                     logger.warning(f"Rate limited or server error ({e.resp.status}), waiting {wait_time}s...")
@@ -197,7 +197,12 @@ class PerspectiveAPI:
             threat_severity = Dimension.TOPICAL
 
         # Preserve maximum severity between current and threat-based classification
-        if threat_severity == Dimension.TOXIC or (threat_severity == Dimension.TOPICAL and label.hate_violence == Dimension.SAFE):
+        severity_order = {
+            Dimension.SAFE: 0,
+            Dimension.TOPICAL: 1,
+            Dimension.TOXIC: 2,
+        }
+        if severity_order[threat_severity] > severity_order[label.hate_violence]:
             label.hate_violence = threat_severity
 
         # Note: Perspective doesn't have good mapping for Self-Inflicted (SI)

@@ -3,8 +3,8 @@
 #SBATCH --partition=thin
 #SBATCH --time=02:00:00
 #SBATCH --mem=16G
-#SBATCH --output=$SLURM_SUBMIT_DIR/logs/%x_%j.out
-#SBATCH --error=$SLURM_SUBMIT_DIR/logs/%x_%j.err
+#SBATCH --output=%x_%j.out
+#SBATCH --error=%x_%j.err
 
 # Enable strict error handling
 set -euo pipefail
@@ -12,16 +12,27 @@ set -euo pipefail
 # Ensure logs directory exists
 mkdir -p "$SLURM_SUBMIT_DIR/logs"
 
-# Create logs directory
-mkdir -p logs
+# Move SLURM output files to logs directory
+if [ -f "${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out" ]; then
+  mv "${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out" "$SLURM_SUBMIT_DIR/logs/"
+fi
+if [ -f "${SLURM_JOB_NAME}_${SLURM_JOB_ID}.err" ]; then
+  mv "${SLURM_JOB_NAME}_${SLURM_JOB_ID}.err" "$SLURM_SUBMIT_DIR/logs/"
+fi
 
 module purge
 module load 2023
 module load Python/3.11.3-GCCcore-12.3.0
 
 # Set project directory from environment or fallback
-PROJECT_DIR="${PROJECT_DIR:-${0%/*}/..}"
-PROJECT_DIR="${PROJECT_DIR:-$HOME/TowardsSaferPretraining}"
+if [ -z "${PROJECT_DIR:-}" ]; then
+  candidate="${0%/*}/.."
+  if [ -d "$candidate" ]; then
+    PROJECT_DIR="$candidate"
+  else
+    PROJECT_DIR="$HOME/TowardsSaferPretraining"
+  fi
+fi
 
 # Change to project directory with error checking
 cd "$PROJECT_DIR" || {

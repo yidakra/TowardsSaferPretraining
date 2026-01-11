@@ -285,6 +285,7 @@ class HAVOCLoader:
         explicit matching fails, with clear warnings.
         """
         # First pass: read model evaluations into lookup dict and cache rows
+        assert self.modeleval_filepath is not None, "modeleval_filepath should not be None"
         model_eval_lookup = {}
         cached_eval_rows = []
         with open(self.modeleval_filepath, 'r', encoding='utf-8') as f:
@@ -361,6 +362,8 @@ class HAVOCLoader:
         if self._samples is None:
             self.load()
 
+        assert self._samples is not None, "Samples should be loaded after load() call"
+
         valid_types = ["provocative", "passive", "neutral"]
         if leakage_type not in valid_types:
             raise ValueError(f"Invalid leakage type. Must be one of: {valid_types}")
@@ -384,6 +387,8 @@ class HAVOCLoader:
         """
         if self._samples is None:
             self.load()
+
+        assert self._samples is not None, "Samples should be loaded after load() call"
 
         harm_map = {
             "H": "hate_violence",
@@ -415,6 +420,8 @@ class HAVOCLoader:
         """
         if self._samples is None:
             self.load()
+
+        assert self._samples is not None, "Samples should be loaded after load() call"
 
         total = len(self._samples)
 
@@ -459,12 +466,14 @@ class HAVOCLoader:
         """Get number of samples."""
         if self._samples is None:
             self.load()
+        assert self._samples is not None, "Samples should be loaded after load() call"
         return len(self._samples)
 
     def __getitem__(self, idx: Union[int, slice]) -> Union[HAVOCSample, List[HAVOCSample]]:
         """Get sample by index or slice."""
         if self._samples is None:
             self.load()
+        assert self._samples is not None, "Samples should be loaded after load() call"
         if isinstance(idx, slice):
             return self._samples[idx]
         return self._samples[idx]

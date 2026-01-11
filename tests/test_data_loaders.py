@@ -62,8 +62,6 @@ class TestTTPEvalLoader:
 
         assert sample.url
         assert sample.body
-        assert hasattr(sample, 'url')
-        assert hasattr(sample, 'body')
         assert hasattr(sample, 'get_harm_label')
 
         label = sample.get_harm_label()
@@ -127,7 +125,8 @@ class TestHAVOCLoader:
     @pytest.fixture
     def loader(self):
         """Create HAVOC loader fixture."""
-        havoc_path = Path("data/HAVOC/havoc.tsv")
+        havoc_path_str = os.getenv("HAVOC_PATH", "data/HAVOC/havoc.tsv")
+        havoc_path = Path(havoc_path_str)
         if not havoc_path.exists():
             pytest.skip(f"HAVOC dataset not found at {havoc_path}")
         return HAVOCLoader(str(havoc_path))
@@ -191,8 +190,11 @@ class TestHAVOCLoader:
 
         # Verify type mapping for existing samples
         if neutral:
-            assert neutral[0].get_leakage_type() == "neutral"
+            for sample in neutral:
+                assert sample.get_leakage_type() == "neutral"
         if passive:
-            assert passive[0].get_leakage_type() == "passive"
+            for sample in passive:
+                assert sample.get_leakage_type() == "passive"
         if provocative:
-            assert provocative[0].get_leakage_type() == "provocative"
+            for sample in provocative:
+                assert sample.get_leakage_type() == "provocative"

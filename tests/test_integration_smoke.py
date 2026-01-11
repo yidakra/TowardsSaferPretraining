@@ -13,6 +13,16 @@ if os.getenv("RUN_INTEGRATION_TESTS") != "1":
     )
 
 
+@pytest.fixture
+def transformers_generator():
+    """Fixture that provides a transformers generator and cleans up after use."""
+    from src.evaluation.llm_generator import create_generator
+
+    gen = create_generator("transformers", "gpt2")
+    yield gen
+    gen.cleanup()
+
+
 def test_core_components_importable():
     # Arrange / Act
     import src  # noqa: F401
@@ -21,16 +31,13 @@ def test_core_components_importable():
 
 
 @pytest.mark.requires_model
-def test_transformers_generator_smoke():
+def test_transformers_generator_smoke(transformers_generator):
     # Arrange
-    from src.evaluation.llm_generator import create_generator
-
-    gen = create_generator("transformers", "gpt2")
+    gen = transformers_generator
 
     # Act
     out = gen.generate("Hello there!", max_tokens=5, temperature=0.0)
 
     # Assert
-    assert isinstance(out, str)
-    assert len(out) > 0
+    assert out.startswith("Hello there!")
 

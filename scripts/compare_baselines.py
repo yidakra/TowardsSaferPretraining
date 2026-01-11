@@ -87,9 +87,9 @@ def evaluate_classifier(
     failed_count = 0
     for sample in iterator:
         try:
-            predicted_label = classifier.predict(sample.text)
+            predicted_label = classifier.predict(sample.body)
             predictions.append(predicted_label)
-            ground_truth.append(sample.label)
+            ground_truth.append(sample.get_harm_label())
         except Exception as e:
             logger.error(f"Error predicting for sample {sample.url}: {e}")
             failed_count += 1
@@ -103,7 +103,7 @@ def evaluate_classifier(
     metrics = calculate_metrics(
         ground_truth=ground_truth,
         predictions=predictions,
-        mode="toxic"  # Focus on toxic detection
+        dimension="toxic"  # Focus on toxic detection
     )
 
     return {
@@ -265,7 +265,7 @@ def main():
     try:
         with open(args.output, 'w') as f:
             json.dump(output_data, f, indent=2)
-    except (OSError, IOError) as e:
+    except OSError as e:
         logger.error(f"Failed to write results to {args.output}: {e}")
         sys.exit(1)
 

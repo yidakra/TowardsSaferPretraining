@@ -5,7 +5,7 @@ Supports HuggingFace Transformers backend for HPC cluster use.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +51,16 @@ class TransformersGenerator:
 
         self.max_new_tokens = max_new_tokens
         self.temperature = temperature
-        self.do_sample = do_sample
+        # If temperature is set to non-zero and do_sample wasn't explicitly enabled, enable sampling
+        if temperature > 0.0 and not do_sample:
+            self.do_sample = True
+        else:
+            self.do_sample = do_sample
         self.torch_dtype = torch_dtype
         self.device_map = device_map
         self.low_cpu_mem_usage = low_cpu_mem_usage
         self.trust_remote_code = trust_remote_code
+        self.device: str  # Will be set below
 
         # Convert torch_dtype string to torch dtype if provided
         torch_dtype_param = None
@@ -70,13 +75,13 @@ class TransformersGenerator:
                 raise ValueError(f"Unsupported torch_dtype: {torch_dtype}")
 
         # Prepare loading kwargs
-        tokenizer_kwargs = {"trust_remote_code": trust_remote_code}
-        model_kwargs = {
+        tokenizer_kwargs: Dict[str, Any] = {"trust_remote_code": trust_remote_code}
+        model_kwargs: Dict[str, Any] = {
             "trust_remote_code": trust_remote_code,
             "low_cpu_mem_usage": low_cpu_mem_usage
         }
 
-        if torch_dtype_param:
+        if torch_dtype_param is not None:
             model_kwargs["torch_dtype"] = torch_dtype_param
 
         if device_map:
@@ -119,7 +124,7 @@ class TransformersGenerator:
                 else:
                     device = "cpu"
             self.device = device
-            self.model.to(self.device)
+            self.model.to(self.device)  # type: ignore
 
         self.model.eval()
 
@@ -151,6 +156,16 @@ class TransformersGenerator:
     def __call__(self, prompt: str) -> str:
         """Make generator callable."""
         return self.generate(prompt)
+
+    def cleanup(self) -> None:
+        """Clean up model resources."""
+        if hasattr(self, 'model'):
+            del self.model
+        if hasattr(self, 'tokenizer'):
+            del self.tokenizer
+        # Clear CUDA cache if available
+        if hasattr(self, 'torch') and self.torch.cuda.is_available():
+            self.torch.cuda.empty_cache()
 
 
 def create_generator(backend: str, model_name: str, **kwargs):

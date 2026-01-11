@@ -175,7 +175,9 @@ class TTPEvaluator:
 
                 # Handle missing content explicitly
                 if content is None:
-                    raise ValueError(f"No content found in response for URL {url}. Response structure: {response}")
+                    response_id = getattr(response, "id", None)
+                    response_model = getattr(response, "model", None)
+                    raise ValueError(f"No content found in response for URL {url}. Response ID: {response_id}, Model: {response_model}")
 
                 last_content = content
 
