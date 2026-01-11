@@ -54,8 +54,8 @@ models/
 
 # Secrets and credentials
 .env
-.env.*
-!.env.example
+env.*
+!example.env
 *.key
 secrets.json
 credentials.json

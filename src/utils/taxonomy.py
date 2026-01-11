@@ -4,7 +4,7 @@ Taxonomy definitions for the three-dimensional safety classification framework.
 
 import logging
 from enum import Enum
-from typing import List, Dict
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 
 # Sentinel for default parameter
@@ -52,7 +52,7 @@ class Dimension(Enum):
     TOXIC = "intent"  # Also called "Intent" in the data (internally uses "intent")
 
     @classmethod
-    def from_label(cls, label: str, default: "Dimension" = _MISSING) -> "Dimension":
+    def from_label(cls, label: str, default: Optional["Dimension"] = None) -> "Dimension":
         """
         Parse dimension from various label formats.
 
@@ -63,10 +63,19 @@ class Dimension(Enum):
         Returns:
             Dimension enum value
         """
-        if default is _MISSING:
+        if default is None:
             default = cls.SAFE
 
         label_lower = label.lower().strip()
+        # Some datasets encode the 3-way scheme as S0/S1/S2 instead of none/topical/intent.
+        # Interpret these as SAFE/TOPICAL/TOXIC respectively.
+        if label_lower in ["s0", "s_0", "s-0"]:
+            return cls.SAFE
+        elif label_lower in ["s1", "s_1", "s-1"]:
+            return cls.TOPICAL
+        elif label_lower in ["s2", "s_2", "s-2"]:
+            return cls.TOXIC
+
         if label_lower in ["none", "safe", ""]:
             return cls.SAFE
         elif label_lower == "topical":

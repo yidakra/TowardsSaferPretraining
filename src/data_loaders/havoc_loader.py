@@ -134,6 +134,12 @@ class HAVOCLoader:
         Returns:
             HarmLabel object
         """
+        label_str = (label_str or "").strip()
+        # Some rows contain "[]" placeholders; treat as unknown and default safe.
+        if label_str in {"[]", ""}:
+            logger.warning(f"Invalid label list '{label_str}', defaulting to all safe")
+            return HarmLabel()
+
         try:
             # Use ast.literal_eval for safe parsing
             labels = ast.literal_eval(label_str)
@@ -161,27 +167,59 @@ class HAVOCLoader:
         if self._samples is not None and not force_reload:
             return self._samples
 
-        samples = []
+        samples: List[HAVOCSample] = []
 
-        with open(self.filepath, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f, delimiter='\t')
+        # Use csv.reader instead of DictReader for robustness: havoc.tsv can contain
+        # a small number of malformed rows (e.g., extra tabs). We reconstruct
+        # Prefix/Suffix/PrefixLab in a best-effort way and skip rows we can't parse.
+        with open(self.filepath, 'r', encoding='utf-8', newline='') as f:
+            reader = csv.reader(f, delimiter='\t')
+            try:
+                header = next(reader)
+            except StopIteration:
+                self._samples = []
+                return []
 
-            for row in reader:
-                try:
-                    prefix = row['Prefix']
-                    suffix = row['Suffix']
-                    prefix_lab_str = row['PrefixLab']
-                except KeyError as e:
-                    raise ValueError(f"Missing required column {e} in HAVOC TSV") from e
+            if header[:3] != ["Prefix", "Suffix", "PrefixLab"]:
+                raise ValueError(
+                    f"Unexpected HAVOC header {header[:3]} (expected ['Prefix','Suffix','PrefixLab'])."
+                )
+
+            for line_number, row in enumerate(reader, start=2):
+                # Expected row = [Prefix, Suffix, PrefixLab]
+                if not row:
+                    continue
+
+                if len(row) == 3:
+                    prefix, suffix, prefix_lab_str = row
+                elif len(row) > 3:
+                    # Assume stray tabs landed in the suffix; keep first column as Prefix,
+                    # last column as PrefixLab, and stitch the middle back into Suffix.
+                    prefix = row[0]
+                    prefix_lab_str = row[-1]
+                    suffix = "\t".join(row[1:-1])
+                    logger.warning(
+                        f"HAVOC TSV row {line_number}: expected 3 fields, got {len(row)}; "
+                        "reconstructed suffix by joining middle fields."
+                    )
+                else:  # len(row) == 1 or 2
+                    prefix = row[0]
+                    suffix = ""
+                    prefix_lab_str = row[1] if len(row) == 2 else ""
+                    logger.warning(
+                        f"HAVOC TSV row {line_number}: expected 3 fields, got {len(row)}; "
+                        "using empty suffix."
+                    )
 
                 prefix_label = self._parse_label_list(prefix_lab_str)
 
-                sample = HAVOCSample(
-                    prefix=prefix,
-                    suffix=suffix,
-                    prefix_label=prefix_label,
+                samples.append(
+                    HAVOCSample(
+                        prefix=prefix,
+                        suffix=suffix,
+                        prefix_label=prefix_label,
+                    )
                 )
-                samples.append(sample)
 
         # Load model evaluations if available
         if self.modeleval_filepath:
