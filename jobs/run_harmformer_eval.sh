@@ -48,6 +48,11 @@ source venv/bin/activate || {
     exit 1
 }
 
+# Optional CodeCarbon tracking
+mkdir -p results/codecarbon
+export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
+export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
+
 # Run HarmFormer test with error checking
 if python scripts/test_harmformer.py; then
     echo "HarmFormer Evaluation Complete!"

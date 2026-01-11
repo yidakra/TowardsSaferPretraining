@@ -43,6 +43,11 @@ source venv/bin/activate || {
 
 # Create output directory
 mkdir -p results/ttp_eval
+mkdir -p results/codecarbon
+
+# Optional CodeCarbon tracking
+export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
+export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
 # Run TTP evaluation on full TTP-Eval dataset
 if python scripts/evaluate_ttp.py \

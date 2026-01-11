@@ -55,6 +55,11 @@ fi
 
 # Create output directory
 mkdir -p results/baselines
+mkdir -p results/codecarbon
+
+# Optional CodeCarbon tracking
+export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$HOME/TowardsSaferPretraining/results/codecarbon}"
+export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
 # Select baselines based on available credentials.
 BASELINES=("harmformer")

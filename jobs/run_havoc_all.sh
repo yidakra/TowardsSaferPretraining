@@ -28,6 +28,11 @@ source venv/bin/activate || {
     exit 1
 }
 
+# Optional CodeCarbon tracking
+mkdir -p results/codecarbon
+export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$HOME/TowardsSaferPretraining/results/codecarbon}"
+export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
+
 # Verify script exists
 if [ ! -f "scripts/evaluate_havoc_modeleval.py" ]; then
     echo "Error: evaluate_havoc_modeleval.py script not found" >&2
