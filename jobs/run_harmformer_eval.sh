@@ -27,9 +27,18 @@ module load CUDA/12.1.1 || {
     exit 1
 }
 
+# Set project directory (configurable via PROJECT_DIR env var or first positional parameter)
+PROJECT_DIR="${PROJECT_DIR:-${1:-$HOME/TowardsSaferPretraining}}"
+
+# Check if project directory exists
+if [[ ! -d "$PROJECT_DIR" ]]; then
+    echo "Error: Project directory '$PROJECT_DIR' does not exist" >&2
+    exit 1
+fi
+
 # Change to project directory with error checking
-cd $HOME/TowardsSaferPretraining || {
-    echo "Error: Failed to change to project directory" >&2
+cd "$PROJECT_DIR" || {
+    echo "Error: Failed to change to project directory '$PROJECT_DIR'" >&2
     exit 1
 }
 

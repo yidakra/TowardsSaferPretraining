@@ -266,7 +266,8 @@ def main():
         with open(args.output, 'w') as f:
             json.dump(output_data, f, indent=2)
     except (OSError, IOError) as e:
-        raise OSError(f"Failed to write results to {args.output}: {e}")
+        logger.error(f"Failed to write results to {args.output}: {e}")
+        sys.exit(1)
 
     print(f"\n{'='*70}")
     print(f"Results saved to {args.output}")

@@ -143,6 +143,7 @@ def _run_evaluation(evaluator, generator, model_name, samples, args):
     """
     print(f"Evaluating {model_name} on HAVOC...")
     result = None
+    printed_results = False
     try:
         result = evaluator.evaluate_samples(
             model_name=model_name,
@@ -152,16 +153,17 @@ def _run_evaluation(evaluator, generator, model_name, samples, args):
 
         # Print results
         evaluator.print_results(result)
+        printed_results = True
         return result
     except KeyboardInterrupt:
         print("\nEvaluation interrupted by user. Saving partial results...")
-        if result:
+        if result and not printed_results:
             evaluator.print_results(result)
             save_partial_results(result, args)
         raise
     except Exception as e:
         print(f"Error during evaluation: {e}")
-        if result:
+        if result and not printed_results:
             print("Saving partial results...")
             evaluator.print_results(result)
             save_partial_results(result, args)

@@ -94,9 +94,10 @@ class TransformersGenerator:
         # attention mask handling and generation since padding tokens may be treated as EOS during training
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+            self.tokenizer.padding_side = "left"
             logger.debug(
                 f"Using eos_token as pad_token fallback for {self.tokenizer.__class__.__name__}: "
-                f"pad_token={self.tokenizer.pad_token}, eos_token={self.tokenizer.eos_token}"
+                f"pad_token={self.tokenizer.pad_token}, eos_token={self.tokenizer.eos_token}, padding_side=left"
             )
 
         self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)

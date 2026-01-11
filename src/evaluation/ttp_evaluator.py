@@ -163,7 +163,7 @@ class TTPEvaluator:
                 self.total_requests += 1
 
                 # Safely extract token usage
-                if response.usage is not None and hasattr(response.usage, 'total_tokens'):
+                if response.usage is not None and hasattr(response.usage, 'total_tokens') and response.usage.total_tokens is not None:
                     self.total_tokens += response.usage.total_tokens
 
                 # Safely extract content
@@ -172,6 +172,10 @@ class TTPEvaluator:
                     response.choices[0].message and
                     hasattr(response.choices[0].message, 'content')):
                     content = response.choices[0].message.content
+
+                # Handle missing content explicitly
+                if content is None:
+                    raise ValueError(f"No content found in response for URL {url}. Response structure: {response}")
 
                 last_content = content
 

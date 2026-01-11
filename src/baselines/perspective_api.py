@@ -84,7 +84,6 @@ class PerspectiveAPI:
             logger.info("Initialized Perspective API client")
         except Exception as e:
             logger.error(f"Failed to initialize Perspective API client: {e}")
-            self.client = None
             raise RuntimeError(f"Perspective API initialization failed: {e}")
 
     def get_scores(self, text: str, max_retries: int = 3) -> Optional[dict]:
@@ -191,10 +190,15 @@ class PerspectiveAPI:
 
         # Classify Hate/Violence (H) - THREAT treated as hate/violence
         threat = scores.get("THREAT", 0.0)
+        threat_severity = Dimension.SAFE
         if threat >= self.toxic_threshold:
-            label.hate_violence = Dimension.TOXIC
+            threat_severity = Dimension.TOXIC
         elif threat >= self.topical_threshold:
-            label.hate_violence = Dimension.TOPICAL
+            threat_severity = Dimension.TOPICAL
+
+        # Preserve maximum severity between current and threat-based classification
+        if threat_severity == Dimension.TOXIC or (threat_severity == Dimension.TOPICAL and label.hate_violence == Dimension.SAFE):
+            label.hate_violence = threat_severity
 
         # Note: Perspective doesn't have good mapping for Self-Inflicted (SI)
         # We leave it as SAFE

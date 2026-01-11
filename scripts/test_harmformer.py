@@ -45,7 +45,7 @@ def evaluate_harmformer(samples: List[TTPEvalSample], model: HarmFormer) -> Dict
         model: HarmFormer instance
 
     Returns:
-        Dictionary with predictions and ground truth
+        Dictionary with predictions and ground truth (as HarmLabel objects)
     """
     predictions = []
     ground_truth = []
@@ -53,26 +53,12 @@ def evaluate_harmformer(samples: List[TTPEvalSample], model: HarmFormer) -> Dict
     logger.info(f"Evaluating HarmFormer on {len(samples)} samples...")
 
     for sample in tqdm(samples, desc="Processing samples"):
-        # Get prediction from HarmFormer
+        # Get prediction from HarmFormer (returns HarmLabel)
         result = model.predict(sample.text)
+        predictions.append(result)
 
-        # Extract toxic dimension prediction
-        # HarmFormer returns predictions for all harms, we need to aggregate
-        is_toxic = any(
-            harm_result.dimension == Dimension.TOXIC
-            for harm_result in result.harm_results
-        )
-
-        # Ground truth: check if sample is labeled as toxic in any harm category
-        sample_is_toxic = False
-        if sample.label:
-            for harm in HarmLabel:
-                if sample.label.get_dimension(harm) == Dimension.TOXIC:
-                    sample_is_toxic = True
-                    break
-
-        predictions.append(1 if is_toxic else 0)
-        ground_truth.append(1 if sample_is_toxic else 0)
+        # Get ground truth HarmLabel from sample
+        ground_truth.append(sample.get_harm_label())
 
     return {
         "predictions": predictions,
@@ -116,10 +102,20 @@ def main():
 
     # Calculate metrics
     logger.info("Calculating metrics...")
-    metrics = calculate_metrics(
-        results["ground_truth"],
-        results["predictions"]
-    )
+    try:
+        metrics = calculate_metrics(
+            results["ground_truth"],
+            results["predictions"]
+        )
+    except (ValueError, TypeError, Exception) as e:
+        logger.error(
+            f"Failed to calculate metrics: {e}. "
+            f"Ground truth type: {type(results['ground_truth'])}, "
+            f"Ground truth size: {len(results['ground_truth']) if hasattr(results['ground_truth'], '__len__') else 'unknown'}, "
+            f"Predictions type: {type(results['predictions'])}, "
+            f"Predictions size: {len(results['predictions']) if hasattr(results['predictions'], '__len__') else 'unknown'}"
+        )
+        sys.exit(1)
 
     # Print results
     print("\n" + "="*60)
@@ -128,13 +124,13 @@ def main():
 
     if "overall" in metrics:
         overall = metrics["overall"]
-        print(f"\nOverall Performance:")
+        print("\nOverall Performance:")
         print(f"  Precision: {overall.get('precision', 0):.3f}")
         print(f"  Recall:    {overall.get('recall', 0):.3f}")
         print(f"  F1 Score:  {overall.get('f1', 0):.3f}")
 
     if "per_harm" in metrics:
-        print(f"\nPer-Harm Performance:")
+        print("\nPer-Harm Performance:")
         for harm_name, harm_metrics in metrics["per_harm"].items():
             print(f"  {harm_name}:")
             print(f"    Precision: {harm_metrics.get('precision', 0):.3f}")

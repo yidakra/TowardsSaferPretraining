@@ -281,14 +281,8 @@ Provide your safety assessment for User in the above conversation:
                 return self.categories_to_label(violated_categories)
             elif is_unsafe:
                 # Model detected unsafe content but didn't specify categories
-                # Set all dimensions to TOXIC as conservative approach for unspecified toxicity
-                label = HarmLabel()
-                label.hate_violence = Dimension.TOXIC
-                label.ideological = Dimension.TOXIC
-                label.sexual = Dimension.TOXIC
-                label.illegal = Dimension.TOXIC
-                label.self_inflicted = Dimension.TOXIC
-                return label
+                logger.warning(f"LlamaGuard detected unsafe content but provided no violated categories for text: {text[:100]}...")
+                return HarmLabel()  # Return all-safe label with warning
             else:
                 return HarmLabel()  # All safe
         except Exception as e:

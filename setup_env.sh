@@ -29,6 +29,11 @@ source "$VENV_DIR/bin/activate"
 pip install --upgrade pip
 
 # Install dependencies
-pip install -r requirements.txt
+if [ -f requirements.txt ]; then
+    pip install -r requirements.txt
+else
+    echo "Error: requirements.txt not found" >&2
+    exit 1
+fi
 
 echo "Environment setup complete!"

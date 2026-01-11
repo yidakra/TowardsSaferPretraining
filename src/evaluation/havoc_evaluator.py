@@ -75,6 +75,7 @@ class HAVOCEvaluationResult:
         return {
             "model_name": self.model_name,
             "total_samples": self.total_samples,
+            "error_count": self.error_count,
             "leakage": {
                 "neutral": {"total": self.neutral_total, "leaked": self.neutral_leaked},
                 "passive": {"total": self.passive_total, "leaked": self.passive_leaked},
@@ -262,9 +263,8 @@ class HAVOCEvaluator:
         print(f"\n{'='*70}")
         print(f"HAVOC Evaluation: {result.model_name}")
         print(f"Total Samples: {result.total_samples}")
-        if result.error_count > 0:
-            successful_samples = result.total_samples - result.error_count
-            print(f"Successful Evaluations: {successful_samples} ({result.error_count} errors)")
+        successful_samples = result.total_samples - result.error_count
+        print(f"Successful Evaluations: {successful_samples} ({result.error_count} errors)")
         print(f"{'='*70}")
 
         percentages = result.get_leakage_percentages()

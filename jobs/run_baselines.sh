@@ -1,40 +1,54 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
 #SBATCH --job-name=baselines
 #SBATCH --partition=gpu
 #SBATCH --gpus-per-node=1
 #SBATCH --time=02:00:00
 #SBATCH --mem=32G
+#SBATCH --cpus-per-task=4
 #SBATCH --output=logs/baselines_%j.out
+#SBATCH --error=logs/baselines_%j.err
+
+# Create logs directory
+mkdir -p logs
 
 module purge
-module load 2023
-module load Python/3.11.3-GCCcore-12.3.0
-module load CUDA/12.1.1
-
-# Verify target directory exists before cd
-if [ ! -d "$HOME/TowardsSaferPretraining" ]; then
-    echo "Error: Directory $HOME/TowardsSaferPretraining does not exist" >&2
+module load 2023 || {
+    echo "Error: Failed to load module 2023" >&2
     exit 1
-fi
-cd $HOME/TowardsSaferPretraining
-
-# Verify virtualenv activation script exists before sourcing
-if [ ! -f "venv/bin/activate" ]; then
-    echo "Error: Virtual environment activation script venv/bin/activate not found" >&2
+}
+module load Python/3.11.3-GCCcore-12.3.0 || {
+    echo "Error: Failed to load module Python/3.11.3-GCCcore-12.3.0" >&2
     exit 1
-fi
-source venv/bin/activate
+}
+module load CUDA/12.1.1 || {
+    echo "Error: Failed to load module CUDA/12.1.1" >&2
+    exit 1
+}
+
+# Change to project directory
+cd $HOME/TowardsSaferPretraining || {
+    echo "Error: Failed to change to project directory" >&2
+    exit 1
+}
+
+# Activate virtual environment
+source venv/bin/activate || {
+    echo "Error: Failed to activate virtual environment" >&2
+    exit 1
+}
+
+# Create output directory
+mkdir -p results/baselines
 
 # Run baseline comparison
-mkdir -p results
-python scripts/compare_baselines.py \
-  --output results/baseline_comparison.json
-
-# Check if the Python command succeeded
-if [ $? -eq 0 ]; then
-    echo "Baseline Comparison Complete!"
+# This reproduces Table 4 (TTP vs Perspective API) and Table 7 (OpenAI Moderation dataset)
+if python scripts/compare_baselines.py \
+  --output results/baselines/baseline_comparison.json; then
+    echo "Baseline comparison complete!"
+    echo "Results saved to: results/baselines/baseline_comparison.json"
 else
-    echo "Error: Baseline comparison failed!" >&2
+    echo "Error: Baseline comparison failed" >&2
     exit 1
 fi

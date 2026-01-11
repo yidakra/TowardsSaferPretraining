@@ -44,12 +44,12 @@ def calculate_metrics(
         - "topical": Evaluates whether predictions correctly identify topical content
         - "all": Evaluates whether predictions correctly identify any harmful content (non-safe)
     """
-    if len(predictions) != len(ground_truth):
-        raise ValueError(f"Mismatch: {len(predictions)} predictions vs {len(ground_truth)} ground truth")
-
     # Validate dimension parameter
     if dimension not in ["toxic", "topical", "all"]:
         raise ValueError(f"Invalid dimension '{dimension}'. Must be one of: 'toxic', 'topical', 'all'")
+
+    if len(predictions) != len(ground_truth):
+        raise ValueError(f"Mismatch: {len(predictions)} predictions vs {len(ground_truth)} ground truth")
 
     # Overall metrics
     overall_tp, overall_fp, overall_fn = 0, 0, 0
@@ -86,6 +86,10 @@ def calculate_metrics(
 
         # Per-harm metrics
         for harm_code, attr_name in short_to_attr.items():
+            if not hasattr(pred, attr_name):
+                raise AttributeError(f"Prediction object missing required attribute '{attr_name}' for harm code '{harm_code}'")
+            if not hasattr(truth, attr_name):
+                raise AttributeError(f"Ground truth object missing required attribute '{attr_name}' for harm code '{harm_code}'")
             pred_dim = getattr(pred, attr_name)
             truth_dim = getattr(truth, attr_name)
 

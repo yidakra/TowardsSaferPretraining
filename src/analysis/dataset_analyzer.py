@@ -239,9 +239,9 @@ class DatasetAnalyzer:
         for result in results:
             percentages = result.get_percentages()
             if result.total_samples == 0:
-                comparison["overall"][result.dataset_name] = 0  # or None, safe default
+                comparison["overall"][result.dataset_name] = {"toxic": 0, "topical": 0, "safe": 0}
             else:
-                comparison["overall"][result.dataset_name] = percentages.get("overall", 0)
+                comparison["overall"][result.dataset_name] = percentages.get("overall", {})
 
             # Per-harm comparison
             for harm_code in _HARM_CODES:
@@ -249,10 +249,10 @@ class DatasetAnalyzer:
                     comparison["per_harm"][harm_code] = {}
 
                 if result.total_samples == 0:
-                    comparison["per_harm"][harm_code][result.dataset_name] = 0  # or None, safe default
+                    comparison["per_harm"][harm_code][result.dataset_name] = {"toxic": 0, "topical": 0, "safe": 0}
                 else:
                     per_harm_data = percentages.get("per_harm", {})
-                    comparison["per_harm"][harm_code][result.dataset_name] = per_harm_data.get(harm_code, 0)
+                    comparison["per_harm"][harm_code][result.dataset_name] = per_harm_data.get(harm_code, {})
 
         return comparison
 

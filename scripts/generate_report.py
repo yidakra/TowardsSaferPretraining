@@ -54,7 +54,7 @@ try:
          overall.get("recall", "N/A"),
          overall.get("f1", "N/A")],
     ]
-except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
+except RuntimeError as e:
     print(f"Warning: Could not load TTP results ({e}). Using placeholder data.")
     table3_data = [
         ["Hate & Violence", "N/A", "N/A", "N/A"],
@@ -88,8 +88,7 @@ if havoc_files:
 
     for havoc_file in havoc_files:
         try:
-            with open(havoc_file, 'r') as f:
-                data = json.load(f)
+            data = load_json(havoc_file)
 
             # Validate expected structure
             if "evaluation" not in data:
@@ -117,6 +116,8 @@ if havoc_files:
             }
             total_models += 1
 
+        except RuntimeError as e:
+            print(f"Warning: Could not load HAVOC results from {havoc_file}: {e}")
         except json.JSONDecodeError as e:
             print(f"Warning: Could not parse JSON in {havoc_file}: {e}")
         except Exception as e:

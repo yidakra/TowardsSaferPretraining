@@ -4,11 +4,14 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --time=24:00:00
 #SBATCH --mem=64G
-#SBATCH --output=logs/havoc_all_%j.out
-#SBATCH --error=logs/havoc_all_%j.err
+#SBATCH --output=$SLURM_SUBMIT_DIR/logs/%x_%j.out
+#SBATCH --error=$SLURM_SUBMIT_DIR/logs/%x_%j.err
 
 # Enable strict error handling
 set -euo pipefail
+
+# Ensure logs directory exists
+mkdir -p "$SLURM_SUBMIT_DIR/logs"
 
 # Create logs directory
 mkdir -p logs
@@ -19,7 +22,7 @@ module load Python/3.11.3-GCCcore-12.3.0
 module load CUDA/12.1.1
 
 # Change to project directory with error checking
-cd $HOME/TowardsSaferPretraining || {
+cd "$HOME/TowardsSaferPretraining" || {
     echo "Error: Failed to change to project directory" >&2
     exit 1
 }
