@@ -63,8 +63,6 @@ python -m pip install -r requirements.txt
 
 #### Table 4 (Toxic dimension): Perspective vs TTP variants on TTP-Eval
 
-- Note: the paper reports Perspective with chunking (500 chars, max score) and a dev-tuned threshold (0.4). Our Perspective adapter uses score thresholds in `src/clients/perspective.py`.
-
 - **Perspective + Gemini TTP (no GPU required)**:
 
 ```bash
@@ -144,6 +142,21 @@ This job can cover Table 4-style baselines and additional baselines (HarmFormer,
 
 ```bash
 sbatch jobs/run_baselines.sh
+```
+
+#### Table 7 (OpenAI Moderation test set): Perspective/Llama Guard/TTP/HarmFormer
+
+First, fetch the dataset (one-time):
+
+```bash
+git clone --depth 1 https://github.com/openai/moderation-api-release.git data/moderation-api-release
+```
+
+Then run:
+
+```bash
+python scripts/evaluate_openai_moderation.py \
+  --output results/moderation/table7_results.json
 ```
 
 ## License

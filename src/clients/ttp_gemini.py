@@ -89,32 +89,47 @@ class GeminiTTPClient:
                 ) from e
 
     def _parse_prompt_template(self) -> None:
-        system_match = re.search(
-            r"<\|im_start\|>system\s*(.*?)<\|im_end\|>",
+        blocks = re.findall(
+            r"<\|im_start\|>(system|user|assistant)\s*(.*?)<\|im_end\|>",
             self.prompt_template,
             re.DOTALL,
         )
-        if not system_match:
-            raise ValueError("Could not find system message in prompt")
-        self.system_message = system_match.group(1).strip()
+        if not blocks:
+            raise ValueError("Could not parse any ChatML blocks from prompt")
 
-        user_blocks = re.findall(
-            r"<\|im_start\|>user\s*(.*?)<\|im_end\|>",
-            self.prompt_template,
-            re.DOTALL,
-        )
-        chosen: Optional[str] = None
-        if user_blocks:
-            for blk in reversed(user_blocks):
-                if "#URL#" in blk and "#Body#" in blk:
-                    chosen = blk.strip()
-                    break
-            if chosen is None:
-                chosen = user_blocks[-1].strip()
+        template_idx: Optional[int] = None
+        for i in range(len(blocks) - 1, -1, -1):
+            role, content = blocks[i]
+            if role == "user" and "#URL#" in content and "#Body#" in content:
+                template_idx = i
+                break
+        if template_idx is None:
+            raise ValueError("Could not find final user template block containing #URL# and #Body#")
 
-        if not chosen:
-            raise ValueError("Could not find user message template in prompt")
-        self.user_template = chosen
+        self.user_template = blocks[template_idx][1].strip()
+
+        prefix_msgs = []
+        for role, content in blocks[:template_idx]:
+            content = content.strip()
+            if not content:
+                continue
+            prefix_msgs.append((role.strip(), content))
+        if not prefix_msgs or prefix_msgs[0][0] != "system":
+            raise ValueError("Prompt did not start with a system message block")
+
+        self._prefix_messages = prefix_msgs
+        self.system_message = prefix_msgs[0][1]
+
+    def _format_prompt(self, final_user_message: str) -> str:
+        """
+        Gemini SDKs accept a single string prompt in our current usage; represent the
+        ChatML conversation explicitly with role tags.
+        """
+        parts = []
+        for role, content in self._prefix_messages:
+            parts.append(f"{role.upper()}:\n{content}")
+        parts.append(f"USER:\n{final_user_message}")
+        return "\n\n".join(parts)
 
     def evaluate(self, url: str, body: str) -> TTPResult:
         user_message = self.user_template.replace("#URL#", url).replace("#Body#", body)
@@ -123,8 +138,7 @@ class GeminiTTPClient:
         for attempt in range(self.max_retries):
             try:
                 if self._sdk == "google-genai":
-                    # google-genai: pass full content including system message as a single prompt.
-                    prompt = f"{self.system_message}\n\n{user_message}"
+                    prompt = self._format_prompt(user_message)
                     resp = self._client.models.generate_content(  # type: ignore[attr-defined]
                         model=self.model,
                         contents=prompt,
@@ -135,7 +149,7 @@ class GeminiTTPClient:
                         raise ValueError("Gemini response missing text")
                 else:
                     resp = self._model.generate_content(  # type: ignore[attr-defined]
-                        user_message,
+                        self._format_prompt(user_message),
                         generation_config={"temperature": self.temperature},
                     )
                     text = getattr(resp, "text", None)

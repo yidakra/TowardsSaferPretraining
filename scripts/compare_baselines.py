@@ -1,7 +1,10 @@
 """
 Compare baseline classifiers (Perspective API, Llama Guard) against TTP and HarmFormer.
 
-Reproduces Table 7 from the paper.
+Reproduces Table 4-style comparisons on TTP-Eval (Toxic dimension).
+
+Note: Table 7 in the paper is on the OpenAI Moderation test set; this script currently
+evaluates on TTP-Eval and does not implement the OpenAI Moderation dataset pipeline.
 
 Usage:
     # Compare all baselines on TTP-Eval
@@ -201,7 +204,11 @@ def main():
     if "perspective" in args.baselines:
         logger.info("Initializing Perspective API...")
         classifiers["Perspective API"] = PerspectiveAPI(
-            api_key=args.perspective_key
+            api_key=args.perspective_key,
+            # Paper-faithful Table 4 setup: 500-char chunks, max score, threshold 0.4
+            mode="paper_table4",
+            paper_threshold=0.4,
+            paper_chunk_chars=500,
         )
 
     if "llama_guard" in args.baselines:

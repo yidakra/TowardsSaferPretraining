@@ -9,7 +9,7 @@ import logging
 import time
 import urllib.error
 import urllib.request
-from typing import Optional
+from typing import Optional, Dict, Any, Literal, List
 
 from ..utils.taxonomy import HarmLabel, Dimension
 
@@ -41,21 +41,34 @@ class PerspectiveClient:
         "SEXUALLY_EXPLICIT",
     ]
 
+    # Paper-faithful defaults (Mendu et al. 2025, Table 4)
+    PAPER_TABLE4_CHUNK_CHARS = 500
+    PAPER_TABLE4_THRESHOLD = 0.4
+
+    # Legacy taxonomy mapping defaults (kept for non-Table-4 usage)
     TOXIC_THRESHOLD = 0.7
     TOPICAL_THRESHOLD = 0.3
 
     def __init__(
         self,
         api_key: str,
-        toxic_threshold: float = 0.7,
-        topical_threshold: float = 0.3,
+        mode: Literal["paper_table4", "taxonomy"] = "paper_table4",
+        # Only used in taxonomy mode
+        toxic_threshold: float = TOXIC_THRESHOLD,
+        topical_threshold: float = TOPICAL_THRESHOLD,
+        # Only used in paper_table4 mode
+        paper_threshold: float = PAPER_TABLE4_THRESHOLD,
+        paper_chunk_chars: int = PAPER_TABLE4_CHUNK_CHARS,
         languages: Optional[list] = None,
     ):
         if not PERSPECTIVE_AVAILABLE:
             raise RuntimeError("Perspective API requires: pip install google-api-python-client")
 
+        self.mode = mode
         self.toxic_threshold = toxic_threshold
         self.topical_threshold = topical_threshold
+        self.paper_threshold = paper_threshold
+        self.paper_chunk_chars = paper_chunk_chars
         self.languages = languages if languages is not None else ["en"]
 
         self.api_key = api_key
@@ -88,22 +101,11 @@ class PerspectiveClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                body = resp.read().decode("utf-8", errors="replace")
-            return json.loads(body)
-        except urllib.error.HTTPError as e:
-            try:
-                _ = e.read()
-            except Exception:
-                pass
-            logger.error("Perspective REST HTTPError: %s", e.code)
-            return None
-        except Exception as e:
-            logger.error("Perspective REST unexpected error: %s", e)
-            return None
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+        return json.loads(body)
 
-    def get_scores(self, text: str, max_retries: int = 3) -> Optional[dict]:
+    def _analyze(self, text: str, requested_attributes: List[str], max_retries: int = 3) -> Optional[Dict[str, float]]:
         text = text.strip()
         if not text:
             logger.warning("Empty text provided to Perspective API")
@@ -114,7 +116,7 @@ class PerspectiveClient:
 
         analyze_request = {
             "comment": {"text": text},
-            "requestedAttributes": {attr: {} for attr in self.ATTRIBUTES},
+            "requestedAttributes": {attr: {} for attr in requested_attributes},
             "languages": self.languages,
         }
 
@@ -124,11 +126,9 @@ class PerspectiveClient:
                     response = self.client.comments().analyze(body=analyze_request).execute()
                 else:
                     response = self._analyze_via_rest(analyze_request)
-                    if response is None:
-                        return None
 
                 scores = {}
-                for attr in self.ATTRIBUTES:
+                for attr in requested_attributes:
                     if attr in response["attributeScores"]:
                         score = response["attributeScores"][attr]["summaryScore"]["value"]
                         scores[attr] = score
@@ -145,12 +145,66 @@ class PerspectiveClient:
                     continue
                 logger.error("Perspective API error: %s", e)
                 return None
+            except urllib.error.HTTPError as e:
+                # REST fallback: handle rate limits / transient errors similarly
+                status = getattr(e, "code", None)
+                if status == 429 or (isinstance(status, int) and 500 <= status < 600):
+                    wait_time = 2**attempt
+                    logger.warning("Perspective REST HTTPError (%s), waiting %ss...", status, wait_time)
+                    time.sleep(wait_time)
+                    continue
+                try:
+                    body = e.read().decode("utf-8", errors="replace")
+                except Exception:
+                    body = ""
+                logger.error("Perspective REST HTTPError: %s body=%s", status, body[:200])
+                return None
             except Exception as e:
                 logger.error("Unexpected error: %s", e)
                 return None
 
         logger.error("Failed after %s retries", max_retries)
         return None
+
+    def get_scores(self, text: str, max_retries: int = 3) -> Optional[Dict[str, float]]:
+        """Get multiple Perspective attribute scores (legacy taxonomy mode)."""
+        return self._analyze(text=text, requested_attributes=self.ATTRIBUTES, max_retries=max_retries)
+
+    def get_toxicity_score_paper_table4(
+        self,
+        text: str,
+        *,
+        chunk_chars: Optional[int] = None,
+        max_retries: int = 3,
+    ) -> Optional[float]:
+        """
+        Paper-faithful Perspective setup (Table 4):
+        - Split long text into fixed-size character chunks (default 500 chars)
+        - Query TOXICITY for each chunk
+        - Aggregate by max score across chunks
+        """
+        chunk_chars = self.paper_chunk_chars if chunk_chars is None else chunk_chars
+        text = (text or "").strip()
+        if not text:
+            return None
+
+        # Chunking to cope with longer texts; paper uses 500 characters.
+        chunks: List[str]
+        if chunk_chars and len(text) > chunk_chars:
+            chunks = [text[i : i + chunk_chars] for i in range(0, len(text), chunk_chars)]
+        else:
+            chunks = [text]
+
+        max_score: Optional[float] = None
+        for ch in chunks:
+            scores = self._analyze(text=ch, requested_attributes=["TOXICITY"], max_retries=max_retries)
+            if not scores or "TOXICITY" not in scores:
+                continue
+            s = float(scores["TOXICITY"])
+            if (max_score is None) or (s > max_score):
+                max_score = s
+
+        return max_score
 
     def scores_to_label(self, scores: dict) -> HarmLabel:
         label = HarmLabel()
@@ -195,6 +249,26 @@ class PerspectiveClient:
         return label
 
     def predict(self, text: str) -> HarmLabel:
+        if self.mode == "paper_table4":
+            score = self.get_toxicity_score_paper_table4(text)
+            if score is None:
+                logger.warning("Failed to get Perspective toxicity score, returning safe label")
+                return HarmLabel()
+
+            is_toxic = score >= float(self.paper_threshold)
+            if not is_toxic:
+                return HarmLabel()
+
+            # Represent binary "toxic dimension" decision in our taxonomy by marking all harms toxic.
+            # This keeps per-harm metrics interpretable (they match the overall toxic decision).
+            return HarmLabel(
+                hate_violence=Dimension.TOXIC,
+                ideological=Dimension.TOXIC,
+                sexual=Dimension.TOXIC,
+                illegal=Dimension.TOXIC,
+                self_inflicted=Dimension.TOXIC,
+            )
+
         scores = self.get_scores(text)
         if scores is None:
             logger.warning("Failed to get scores, returning safe label")

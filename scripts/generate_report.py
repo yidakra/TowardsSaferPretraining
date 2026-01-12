@@ -91,6 +91,20 @@ except RuntimeError as e:
     ]
 print(tabulate(table6_data, headers=["Harm", "Precision", "Recall", "F1"], tablefmt="grid"))
 
+# Table 7: OpenAI Moderation test set
+print("\nTable 7: Performance on OpenAI Moderation Dataset (Binary Toxic Label)")
+try:
+    mod_results = load_json("results/moderation/table7_results.json")
+    rows = []
+    for r in mod_results.get("results", []):
+        m = r.get("metrics", {}).get("overall", {})
+        rows.append([r.get("classifier", "Unknown"), m.get("precision", "N/A"), m.get("recall", "N/A"), m.get("f1", "N/A")])
+    if not rows:
+        raise RuntimeError("No results found in results/moderation/table7_results.json")
+    print(tabulate(rows, headers=["Setup", "Precision", "Recall", "F1"], tablefmt="grid"))
+except RuntimeError as e:
+    print(f"Warning: Could not load Table 7 results ({e}).")
+
 # Table 10: HAVOC Leakage
 print("\nTable 10: Model-Averaged Leakage on HAVOC (%)")
 havoc_files = list(Path("results/havoc").glob("*_results.json"))

@@ -79,41 +79,49 @@ class OpenAITTPClient:
         self.failed_requests = 0
 
     def _parse_prompt_template(self) -> None:
-        """Parse ChatML format prompt into system/user messages."""
-        system_match = re.search(
-            r"<\|im_start\|>system\s*(.*?)<\|im_end\|>",
+        """
+        Parse ChatML prompt into:
+        - `self._prefix_messages`: system + few-shot (user/assistant) examples
+        - `self.user_template`: the final user message containing #URL# and #Body#
+
+        This is important for reproducing the paper: the prompt quality relies on
+        the included examples (few-shot).
+        """
+        blocks = re.findall(
+            r"<\|im_start\|>(system|user|assistant)\s*(.*?)<\|im_end\|>",
             self.prompt_template,
             re.DOTALL,
         )
-        if not system_match:
-            raise ValueError("Could not find system message in prompt")
+        if not blocks:
+            raise ValueError("Could not parse any ChatML blocks from prompt")
 
-        self.system_message = system_match.group(1).strip()
+        template_idx: Optional[int] = None
+        for i in range(len(blocks) - 1, -1, -1):
+            role, content = blocks[i]
+            if role == "user" and "#URL#" in content and "#Body#" in content:
+                template_idx = i
+                break
+        if template_idx is None:
+            raise ValueError("Could not find final user template block containing #URL# and #Body#")
 
-        # Extract user message template; prompt includes examples.
-        user_blocks = re.findall(
-            r"<\|im_start\|>user\s*(.*?)<\|im_end\|>",
-            self.prompt_template,
-            re.DOTALL,
-        )
-        chosen: Optional[str] = None
-        if user_blocks:
-            for blk in reversed(user_blocks):
-                if "#URL#" in blk and "#Body#" in blk:
-                    chosen = blk.strip()
-                    break
-            if chosen is None:
-                chosen = user_blocks[-1].strip()
+        self.user_template = blocks[template_idx][1].strip()
 
-        if chosen:
-            self.user_template = chosen
-        else:
-            logger.warning(
-                "Prompt template lacked '<|im_start|>user...<|im_end|>' section, "
-                "using hardcoded fallback. Template preview: %s...",
-                self.prompt_template[:200].replace("\n", "\\n"),
-            )
-            self.user_template = "Web Page Link - #URL#\nWeb Page Content -\n#Body#"
+        prefix_msgs = []
+        for role, content in blocks[:template_idx]:
+            role = role.strip()
+            content = content.strip()
+            if not content:
+                continue
+            if role not in {"system", "user", "assistant"}:
+                continue
+            prefix_msgs.append({"role": role, "content": content})
+
+        # Require at least a system message at the front for stable behavior.
+        if not prefix_msgs or prefix_msgs[0]["role"] != "system":
+            raise ValueError("Prompt did not start with a system message block")
+
+        self._prefix_messages = prefix_msgs
+        self.system_message = prefix_msgs[0]["content"]
 
     def evaluate(self, url: str, body: str) -> TTPResult:
         """Evaluate a single web page (url + body)."""
@@ -124,10 +132,7 @@ class OpenAITTPClient:
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
-                    messages=[
-                        {"role": "system", "content": self.system_message},
-                        {"role": "user", "content": user_message},
-                    ],
+                    messages=self._prefix_messages + [{"role": "user", "content": user_message}],
                     temperature=self.temperature,
                 )
 
