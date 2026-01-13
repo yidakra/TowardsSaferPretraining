@@ -99,7 +99,11 @@ def main() -> int:
     parser.add_argument("--perspective-threshold", type=float, default=0.4)
 
     # Llama Guard
-    parser.add_argument("--llama-guard-model", default=None, help="HF model id override (default: meta-llama/LlamaGuard-7b)")
+    parser.add_argument(
+        "--llama-guard-model",
+        default=None,
+        help="HF model id override (default: meta-llama/Llama-Guard-3-8B)",
+    )
 
     args = parser.parse_args()
 
@@ -125,7 +129,7 @@ def main() -> int:
                 "Perspective API",
                 PerspectiveAPI(
                     api_key=perspective_key,
-                    mode="paper_table4",  # chunking not harmful for short texts; keeps behavior consistent
+                    mode="paper_table4",  # keeps behavior consistent with paper
                     paper_threshold=args.perspective_threshold,
                     paper_chunk_chars=500,
                 ),

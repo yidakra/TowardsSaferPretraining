@@ -21,10 +21,19 @@ print("=" * 80)
 # Table 3: TTP Quality on TTP-Eval
 print("\nTable 3: TTP Quality (Toxic Dimension)")
 try:
-    ttp_results = load_json("results/ttp_eval/ttp_results.json")
-    # Extract metrics from actual results
-    metrics = ttp_results.get("metrics", {}).get("per_harm", {})
-    overall = ttp_results.get("metrics", {}).get("overall", {})
+    ttp_payload = load_json("results/ttp_eval/results.json")
+    # Unified schema: find the OpenAI TTP result entry
+    ttp_entry = None
+    for r in ttp_payload.get("results", []):
+        setup = (r.get("setup") or "").lower()
+        if setup.startswith("ttp ("):
+            ttp_entry = r
+            break
+    if ttp_entry is None:
+        raise RuntimeError("No TTP entry found in results/ttp_eval/results.json")
+
+    metrics = ttp_entry.get("metrics", {}).get("per_harm", {})
+    overall = ttp_entry.get("metrics", {}).get("overall", {})
 
     table3_data = [
         ["Hate & Violence",
@@ -64,8 +73,24 @@ except RuntimeError as e:
     ]
 print(tabulate(table3_data, headers=["Harm", "Precision", "Recall", "F1"], tablefmt="grid"))
 
+# Table 4: TTP vs Perspective on TTP-Eval (Toxic dimension)
+print("\nTable 4: TTP vs Perspective (Toxic Dimension, TTP-Eval)")
+try:
+    table4 = load_json("results/ttp_eval_baselines/results.json")
+    rows = []
+    for r in table4.get("results", []):
+        m = r.get("metrics", {}).get("overall", {})
+        rows.append([r.get("setup", "Unknown"), m.get("precision", "N/A"), m.get("recall", "N/A"), m.get("f1", "N/A")])
+    if not rows:
+        raise RuntimeError("No results found in results/ttp_eval_baselines/results.json")
+    print(tabulate(rows, headers=["Setup", "Precision", "Recall", "F1"], tablefmt="grid"))
+except RuntimeError as e:
+    print(f"Warning: Could not load Table 4 results ({e}).")
+
 # Table 6: HarmFormer Quality
 print("\nTable 6: HarmFormer Quality (Toxic Dimension)")
+print("Note: The paper's Table 6 is reported on the authors' internal HarmFormer test split, which is not publicly released.")
+print("This repo reports HarmFormer performance on TTP-Eval as a proxy.")
 try:
     harmformer_results = load_json("results/harmformer/harmformer_results.json")
     metrics = harmformer_results.get("metrics", {}).get("per_harm", {})

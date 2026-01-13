@@ -9,6 +9,7 @@ import logging
 import time
 import urllib.error
 import urllib.request
+import os
 from typing import Optional, Dict, Any, Literal, List
 
 from ..utils.taxonomy import HarmLabel, Dimension
@@ -59,6 +60,9 @@ class PerspectiveClient:
         # Only used in paper_table4 mode
         paper_threshold: float = PAPER_TABLE4_THRESHOLD,
         paper_chunk_chars: int = PAPER_TABLE4_CHUNK_CHARS,
+        # Throttling to avoid 429s (Perspective quotas are often low).
+        # Set via env PERSPECTIVE_MIN_INTERVAL_S to override default.
+        min_interval_s: Optional[float] = None,
         languages: Optional[list] = None,
     ):
         if not PERSPECTIVE_AVAILABLE:
@@ -73,6 +77,15 @@ class PerspectiveClient:
 
         self.api_key = api_key
         self.client = None
+
+        if min_interval_s is None:
+            env = os.environ.get("PERSPECTIVE_MIN_INTERVAL_S")
+            try:
+                min_interval_s = float(env) if env is not None and env.strip() else 0.35
+            except Exception:
+                min_interval_s = 0.35
+        self.min_interval_s = max(0.0, float(min_interval_s))
+        self._last_request_ts: float = 0.0
 
         # Prefer googleapiclient when it works, but fall back to direct REST calls.
         # Some key configurations block access to the discovery document endpoint even
@@ -122,10 +135,17 @@ class PerspectiveClient:
 
         for attempt in range(max_retries):
             try:
+                # Best-effort throttling to avoid repeated 429s, especially with chunking.
+                if self.min_interval_s > 0:
+                    now = time.time()
+                    sleep_for = (self._last_request_ts + self.min_interval_s) - now
+                    if sleep_for > 0:
+                        time.sleep(sleep_for)
                 if self.client is not None:
                     response = self.client.comments().analyze(body=analyze_request).execute()
                 else:
                     response = self._analyze_via_rest(analyze_request)
+                self._last_request_ts = time.time()
 
                 scores = {}
                 for attr in requested_attributes:
@@ -149,7 +169,14 @@ class PerspectiveClient:
                 # REST fallback: handle rate limits / transient errors similarly
                 status = getattr(e, "code", None)
                 if status == 429 or (isinstance(status, int) and 500 <= status < 600):
-                    wait_time = 2**attempt
+                    retry_after = None
+                    try:
+                        ra = e.headers.get("Retry-After") if getattr(e, "headers", None) is not None else None
+                        if ra:
+                            retry_after = float(ra)
+                    except Exception:
+                        retry_after = None
+                    wait_time = retry_after if retry_after is not None else (2**attempt)
                     logger.warning("Perspective REST HTTPError (%s), waiting %ss...", status, wait_time)
                     time.sleep(wait_time)
                     continue

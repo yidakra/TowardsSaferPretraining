@@ -66,32 +66,35 @@ python -m pip install -r requirements.txt
 - **Perspective + Gemini TTP (no GPU required)**:
 
 ```bash
-python scripts/compare_baselines.py \
-  --baselines perspective gemini \
+python scripts/evaluate_ttp_eval.py \
+  --setups perspective gemini_ttp \
   --perspective-key "$PERSPECTIVE_API_KEY" \
   --gemini-key "$GEMINI_API_KEY" \
   --gemini-model "${GEMINI_MODEL:-gemini-2.0-flash}" \
-  --output results/baselines/table4_local.json
+  --dimension toxic \
+  --output results/ttp_eval_baselines/results.json
 ```
 
 - **Perspective + OpenAI TTP (no GPU required; requires OpenAI quota/billing)**:
 
 ```bash
-python scripts/compare_baselines.py \
-  --baselines perspective ttp \
+python scripts/evaluate_ttp_eval.py \
+  --setups perspective openai_ttp \
   --perspective-key "$PERSPECTIVE_API_KEY" \
   --openai-key "$OPENAI_API_KEY" \
-  --output results/baselines/table4_openai.json
+  --dimension toxic \
+  --output results/ttp_eval_baselines/results.json
 ```
 
 #### Table 3 (Toxic dimension): TTP quality on TTP-Eval (OpenAI)
 
 ```bash
-python scripts/evaluate_ttp.py \
+python scripts/evaluate_ttp_eval.py \
   --data-path data/TTP-Eval/TTPEval.tsv \
-  --model gpt-4o \
+  --setups openai_ttp \
+  --openai-model gpt-4o \
   --dimension toxic \
-  --output results/ttp_eval/ttp_results.json
+  --output results/ttp_eval/results.json
 ```
 
 #### Table 10: HAVOC leakage from released `havoc_modeleval.tsv` (no model downloads)
@@ -157,6 +160,26 @@ Then run:
 ```bash
 python scripts/evaluate_openai_moderation.py \
   --output results/moderation/table7_results.json
+```
+
+#### Table 4 local-model rows (Gemma 2 27B; optional R1 model)
+
+Run Table 4 with local Transformers models on Snellius (GPU). This is needed to reproduce the paper’s non-API rows
+like **Gemma 2 27B**. The paper’s “R1 - LLaMa 32B” model id is not stable across releases; provide it via `R1_MODEL_ID`.
+
+```bash
+sbatch jobs/run_ttp_eval_local_llms.sh
+```
+
+Environment variables:
+- `GEMMA_2_27B_MODEL_ID` (default: `google/gemma-2-27b-it`)
+- `R1_MODEL_ID` (optional; set to the HF model id you intend to match)
+- `TTP_LOCAL_QUANTIZATION` (optional: `none|8bit|4bit`; requires `bitsandbytes` if not `none`)
+
+#### Table 7 Slurm wrapper (GPU)
+
+```bash
+sbatch jobs/run_table7_moderation.sh
 ```
 
 ## License

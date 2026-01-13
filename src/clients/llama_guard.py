@@ -26,7 +26,9 @@ except ImportError:
 class LlamaGuardClient:
     """Adapter for Meta's Llama Guard safety classifier."""
 
-    MODEL_NAME = "meta-llama/LlamaGuard-7b"
+    # Paper parity (Table 7) uses "Llama Guard 3".
+    # Default to Meta's official Llama Guard 3 release (8B).
+    MODEL_NAME = "meta-llama/Llama-Guard-3-8B"
 
     CATEGORY_MAPPING = {
         "S1": ["hate_violence"],
