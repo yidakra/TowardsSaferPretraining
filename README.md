@@ -139,12 +139,30 @@ sbatch setup_env.sh
 sbatch jobs/run_harmformer_eval.sh
 ```
 
-#### Baseline comparison job (GPU; runs what credentials enable)
-
-This job can cover Table 4-style baselines and additional baselines (HarmFormer, Llama Guard) when credentials are present:
+#### Table 3 (Toxic dimension): TTP quality on TTP-Eval (OpenAI)
 
 ```bash
-sbatch jobs/run_baselines.sh
+sbatch jobs/run_ttp_eval.sh
+```
+
+#### Baseline comparison job (GPU; runs what credentials enable)
+
+This job can cover local baselines (HarmFormer, Llama Guard prompt variants) without API keys:
+
+```bash
+sbatch jobs/run_baselines_local.sh
+```
+
+If you want the API rows (Perspective + OpenAI TTP), run:
+
+```bash
+sbatch jobs/run_baselines_api.sh
+```
+
+#### Table 4 (Toxic dimension): Perspective vs OpenAI TTP (API rows on TTP-Eval)
+
+```bash
+sbatch jobs/run_ttp_eval_api.sh
 ```
 
 #### Table 7 (OpenAI Moderation test set): Perspective/Llama Guard/TTP/HarmFormer
@@ -168,7 +186,7 @@ Run Table 4 with local Transformers models on Snellius (GPU). This is needed to 
 like **Gemma 2 27B**. The paper’s “R1 - LLaMa 32B” model id is not stable across releases; provide it via `R1_MODEL_ID`.
 
 ```bash
-sbatch jobs/run_ttp_eval_local_llms.sh
+sbatch jobs/run_ttp_eval_local.sh
 ```
 
 Environment variables:

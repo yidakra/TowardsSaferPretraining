@@ -21,7 +21,12 @@ print("=" * 80)
 # Table 3: TTP Quality on TTP-Eval
 print("\nTable 3: TTP Quality (Toxic Dimension)")
 try:
-    ttp_payload = load_json("results/ttp_eval/results.json")
+    # Preferred output path
+    try:
+        ttp_payload = load_json("results/ttp_eval/results.json")
+    except RuntimeError:
+        # Backwards/alternative job output name
+        ttp_payload = load_json("results/ttp_eval/ttp_results.json")
     # Unified schema: find the OpenAI TTP result entry
     ttp_entry = None
     for r in ttp_payload.get("results", []):
@@ -30,7 +35,7 @@ try:
             ttp_entry = r
             break
     if ttp_entry is None:
-        raise RuntimeError("No TTP entry found in results/ttp_eval/results.json")
+        raise RuntimeError("No TTP entry found in results/ttp_eval/*.json")
 
     metrics = ttp_entry.get("metrics", {}).get("per_harm", {})
     overall = ttp_entry.get("metrics", {}).get("overall", {})
@@ -76,13 +81,30 @@ print(tabulate(table3_data, headers=["Harm", "Precision", "Recall", "F1"], table
 # Table 4: TTP vs Perspective on TTP-Eval (Toxic dimension)
 print("\nTable 4: TTP vs Perspective (Toxic Dimension, TTP-Eval)")
 try:
-    table4 = load_json("results/ttp_eval_baselines/results.json")
+    try:
+        table4 = load_json("results/ttp_eval_baselines/results.json")
+    except RuntimeError:
+        # PR job scripts may split outputs.
+        # Combine rows from any present files.
+        combined_results = []
+        for p in [
+            "results/ttp_eval_baselines/table4_perspective_openai_ttp.json",
+            "results/ttp_eval_baselines/table4_local_ttp.json",
+        ]:
+            try:
+                payload = load_json(p)
+                combined_results.extend(payload.get("results", []))
+            except RuntimeError:
+                pass
+        if not combined_results:
+            raise RuntimeError("No results found in results/ttp_eval_baselines/*")
+        table4 = {"results": combined_results}
     rows = []
     for r in table4.get("results", []):
         m = r.get("metrics", {}).get("overall", {})
         rows.append([r.get("setup", "Unknown"), m.get("precision", "N/A"), m.get("recall", "N/A"), m.get("f1", "N/A")])
     if not rows:
-        raise RuntimeError("No results found in results/ttp_eval_baselines/results.json")
+        raise RuntimeError("No results found in results/ttp_eval_baselines/*.json")
     print(tabulate(rows, headers=["Setup", "Precision", "Recall", "F1"], tablefmt="grid"))
 except RuntimeError as e:
     print(f"Warning: Could not load Table 4 results ({e}).")
@@ -119,13 +141,29 @@ print(tabulate(table6_data, headers=["Harm", "Precision", "Recall", "F1"], table
 # Table 7: OpenAI Moderation test set
 print("\nTable 7: Performance on OpenAI Moderation Dataset (Binary Toxic Label)")
 try:
-    mod_results = load_json("results/moderation/table7_results.json")
+    try:
+        mod_results = load_json("results/moderation/table7_results.json")
+    except RuntimeError:
+        # PR job scripts may split API vs local runs.
+        combined = []
+        for p in [
+            "results/moderation/table7_api_results.json",
+            "results/moderation/table7_local_results.json",
+        ]:
+            try:
+                payload = load_json(p)
+                combined.extend(payload.get("results", []))
+            except RuntimeError:
+                pass
+        if not combined:
+            raise RuntimeError("No results found in results/moderation/table7_*.json")
+        mod_results = {"results": combined}
     rows = []
     for r in mod_results.get("results", []):
         m = r.get("metrics", {}).get("overall", {})
         rows.append([r.get("classifier", "Unknown"), m.get("precision", "N/A"), m.get("recall", "N/A"), m.get("f1", "N/A")])
     if not rows:
-        raise RuntimeError("No results found in results/moderation/table7_results.json")
+        raise RuntimeError("No results found in results/moderation/table7_*.json")
     print(tabulate(rows, headers=["Setup", "Precision", "Recall", "F1"], tablefmt="grid"))
 except RuntimeError as e:
     print(f"Warning: Could not load Table 7 results ({e}).")
