@@ -53,6 +53,7 @@ python -m pip install -r requirements.txt
 
 - **API keys via env**:
   - **OpenAI TTP**: `OPENAI_API_KEY` (Table 3, Table 4 “TTP” row, HAVOC judge=TTP)
+  - **OpenRouter TTP**: `OPENROUTER_API_KEY` (+ optional `OPENROUTER_MODEL`, default `openai/gpt-4o`) (Table 3/4 via `--setups openrouter_ttp`)
   - **Gemini TTP**: `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`, default `gemini-2.0-flash`) (Table 4 Gemini row)
   - **Perspective**: `PERSPECTIVE_API_KEY` (Table 4 Perspective row)
     - Or set `ENABLE_PERSPECTIVE_WITH_GEMINI_KEY=1` to reuse `GEMINI_API_KEY` for Perspective if that key/project is enabled for the Perspective API.

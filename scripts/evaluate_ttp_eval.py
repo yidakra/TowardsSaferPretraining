@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data_loaders import TTPEvalLoader, TTPEvalSample  # noqa: E402
 from src.benchmarks.metrics import calculate_metrics  # noqa: E402
-from src.clients import PerspectiveAPI, LlamaGuard, TransformersTTPClient  # noqa: E402
+from src.clients import PerspectiveAPI, LlamaGuard, TransformersTTPClient, OpenRouterTTPClient  # noqa: E402
 from src.clients.ttp_openai import OpenAITTPClient  # noqa: E402
 from src.clients.ttp_gemini import GeminiTTPEvaluator  # noqa: E402
 from src.models import HarmFormer  # noqa: E402
@@ -66,7 +66,7 @@ def main() -> int:
         "--setups",
         nargs="+",
         default=["perspective", "harmformer"],
-        choices=["perspective", "openai_ttp", "gemini_ttp", "harmformer", "llama_guard", "local_ttp"],
+        choices=["perspective", "openai_ttp", "openrouter_ttp", "gemini_ttp", "harmformer", "llama_guard", "local_ttp"],
         help="Which setups to run",
     )
 
@@ -78,6 +78,12 @@ def main() -> int:
     # OpenAI
     p.add_argument("--openai-key", help="OpenAI API key (or set OPENAI_API_KEY)")
     p.add_argument("--openai-model", default="gpt-4o")
+
+    # OpenRouter (OpenAI-compatible)
+    p.add_argument("--openrouter-key", help="OpenRouter API key (or set OPENROUTER_API_KEY)")
+    p.add_argument("--openrouter-model", default=os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o"))
+    p.add_argument("--openrouter-referer", default=os.environ.get("OPENROUTER_REFERER"), help="Optional HTTP-Referer header")
+    p.add_argument("--openrouter-title", default=os.environ.get("OPENROUTER_TITLE"), help="Optional X-Title header")
 
     # Gemini
     p.add_argument("--gemini-key", help="Gemini API key (or set GEMINI_API_KEY)")
@@ -127,6 +133,22 @@ def main() -> int:
             raise SystemExit("openai_ttp selected but no OPENAI_API_KEY/--openai-key provided.")
         setups.append((f"TTP ({args.openai_model})", OpenAITTPClient(api_key=key, model=args.openai_model)))
 
+    if "openrouter_ttp" in args.setups:
+        key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
+        if not key:
+            raise SystemExit("openrouter_ttp selected but no OPENROUTER_API_KEY/--openrouter-key provided.")
+        setups.append(
+            (
+                f"TTP (OpenRouter: {args.openrouter_model})",
+                OpenRouterTTPClient(
+                    api_key=key,
+                    model=args.openrouter_model,
+                    referer=args.openrouter_referer,
+                    title=args.openrouter_title,
+                ),
+            )
+        )
+
     if "gemini_ttp" in args.setups:
         key = args.gemini_key or os.environ.get("GEMINI_API_KEY")
         if not key:
@@ -164,6 +186,7 @@ def main() -> int:
             "setups": [n for n, _ in setups],
             "device": args.device,
             "openai_model": args.openai_model,
+            "openrouter_model": args.openrouter_model,
             "gemini_model": args.gemini_model,
             "perspective_threshold": args.perspective_threshold,
             "perspective_chunk_chars": args.perspective_chunk_chars,
