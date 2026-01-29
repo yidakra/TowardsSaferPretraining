@@ -44,6 +44,9 @@ pyrightconfig.json
 
 # Logs (keep directory, ignore contents)
 *.log
+logs/
+*.out
+*.err
 
 # Model checkpoints
 checkpoints/
@@ -55,6 +58,7 @@ models/
 # Data (large files)
 *.parquet
 *.arrow
+data/moderation-api-release/
 
 # Secrets and credentials
 .env
@@ -69,6 +73,8 @@ secrets/*.json
 # Large data files (but keep results directories)
 datasets/samples/*.jsonl
 *.parquet.tmp
+results/
+archives/
 
 # Temporary/test files
 generate_havoc_report.py
