@@ -26,6 +26,7 @@ from src.clients.ttp_openai import OpenAITTPClient  # noqa: E402
 from src.models import HarmFormer  # noqa: E402
 from src.utils.codecarbon import maybe_track_emissions  # noqa: E402
 from src.utils.taxonomy import HarmLabel, Dimension  # noqa: E402
+from src.utils.repro_metadata import gather_run_metadata  # noqa: E402
 
 
 def _truth_to_label(s: OpenAIModerationSample) -> HarmLabel:
@@ -40,10 +41,16 @@ def _truth_to_label(s: OpenAIModerationSample) -> HarmLabel:
     )
 
 
+def _toxic_label() -> HarmLabel:
+    return _truth_to_label(OpenAIModerationSample(text="", is_toxic=True))
+
+
 def _evaluate_binary(
     name: str,
     classifier,
     samples: List[OpenAIModerationSample],
+    *,
+    invalid_policy: str,
 ) -> Dict[str, Any]:
     preds: List[HarmLabel] = []
     gts: List[HarmLabel] = []
@@ -54,15 +61,34 @@ def _evaluate_binary(
             gts.append(_truth_to_label(s))
         except Exception:
             failed += 1
-            continue
+            if invalid_policy == "exclude":
+                continue
+            if invalid_policy == "non_toxic":
+                preds.append(HarmLabel())
+                gts.append(_truth_to_label(s))
+                continue
+            if invalid_policy == "toxic":
+                preds.append(_toxic_label())
+                gts.append(_truth_to_label(s))
+                continue
+            raise RuntimeError(f"Unknown invalid_policy: {invalid_policy}")
 
     metrics = calculate_metrics(predictions=preds, ground_truth=gts, dimension="toxic")
+
+    client_stats = None
+    if hasattr(classifier, "get_stats") and callable(getattr(classifier, "get_stats")):
+        try:
+            client_stats = classifier.get_stats()  # type: ignore[attr-defined]
+        except Exception:
+            client_stats = None
     return {
         "classifier": name,
         "total_samples": len(samples),
         "failed_samples": failed,
         "evaluated_samples": len(preds),
         "metrics": metrics,
+        "invalid_policy": invalid_policy,
+        "client_stats": client_stats,
     }
 
 
@@ -85,10 +111,22 @@ def main() -> int:
             "ttp_openrouter",
             "harmformer",
         ],
-        default=["perspective", "llama_guard", "llama_guard_zero_shot", "llama_guard_few_shot", "ttp", "harmformer"],
+        # Default to local-only baselines to avoid API calls unless explicitly requested.
+        default=["llama_guard", "llama_guard_zero_shot", "llama_guard_few_shot", "harmformer"],
     )
     parser.add_argument("--output", default="results/moderation/table7_results.json", help="Output JSON path")
     parser.add_argument("--limit", type=int, help="Limit samples (debug)")
+
+    parser.add_argument(
+        "--invalid-policy",
+        default=None,
+        choices=["exclude", "non_toxic", "toxic"],
+        help=(
+            "How to handle invalid/unparseable outputs or API failures. "
+            "If omitted, uses the setup's default behavior (OpenAI/OpenRouter typically fail-open; "
+            "local baselines typically raise and are excluded)."
+        ),
+    )
 
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu", "mps"], help="Device for local models")
 
@@ -142,38 +180,28 @@ def main() -> int:
             )
         )
 
+    # Llama Guard variants are processed sequentially below to avoid OOM
+    # (loading 3 copies of 8B model would exceed A100 40GB memory)
+    llama_guard_modes: List[Tuple[str, str]] = []
     if "llama_guard" in args.baselines:
-        classifiers.append(
-            (
-                "Llama Guard",
-                LlamaGuard(model_name=args.llama_guard_model or LlamaGuard.MODEL_NAME, device=args.device, prompt_mode="focused"),
-            )
-        )
+        llama_guard_modes.append(("Llama Guard", "focused"))
     if "llama_guard_zero_shot" in args.baselines:
-        classifiers.append(
-            (
-                "Llama Guard Zero Shot",
-                LlamaGuard(model_name=args.llama_guard_model or LlamaGuard.MODEL_NAME, device=args.device, prompt_mode="zero_shot"),
-            )
-        )
+        llama_guard_modes.append(("Llama Guard Zero Shot", "zero_shot"))
     if "llama_guard_few_shot" in args.baselines:
-        classifiers.append(
-            (
-                "Llama Guard Few Shot",
-                LlamaGuard(model_name=args.llama_guard_model or LlamaGuard.MODEL_NAME, device=args.device, prompt_mode="few_shot"),
-            )
-        )
+        llama_guard_modes.append(("Llama Guard Few Shot", "few_shot"))
 
     if "ttp" in args.baselines:
         openai_key = args.openai_key or os.environ.get("OPENAI_API_KEY")
         if not openai_key:
             raise SystemExit("TTP enabled but no OpenAI key provided (set OPENAI_API_KEY or pass --openai-key)")
-        classifiers.append(("TTP", OpenAITTPClient(api_key=openai_key, model="gpt-4o")))
+        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
+        classifiers.append(("TTP", OpenAITTPClient(api_key=openai_key, model="gpt-4o", fail_open=fail_open)))
 
     if "ttp_openrouter" in args.baselines:
         key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
         if not key:
             raise SystemExit("TTP (OpenRouter) enabled but no OpenRouter key provided (set OPENROUTER_API_KEY or pass --openrouter-key)")
+        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
         classifiers.append(
             (
                 f"TTP (OpenRouter: {args.openrouter_model})",
@@ -182,6 +210,7 @@ def main() -> int:
                     model=args.openrouter_model,
                     referer=args.openrouter_referer,
                     title=args.openrouter_title,
+                    fail_open=fail_open,
                 ),
             )
         )
@@ -190,19 +219,50 @@ def main() -> int:
         classifiers.append(("HarmFormer", HarmFormer(device=args.device)))
 
     results: List[Dict[str, Any]] = []
+    all_baseline_names: List[str] = []
+
+    invalid_policy = args.invalid_policy or "exclude"
+
+    # Process Llama Guard variants sequentially to avoid OOM
+    # (each 8B model uses ~16GB; loading 3 at once would exceed A100 40GB)
+    for name, mode in llama_guard_modes:
+        try:
+            print(f"Loading {name} (mode={mode})...")
+            clf = LlamaGuard(
+                model_name=args.llama_guard_model or LlamaGuard.MODEL_NAME,
+                device=args.device,
+                prompt_mode=mode,
+            )
+            with maybe_track_emissions(run_name=f"moderation_{name.replace(' ', '_').lower()}"):
+                results.append(_evaluate_binary(name, clf, samples, invalid_policy=invalid_policy))
+            all_baseline_names.append(name)
+            # Free GPU memory before loading next variant
+            print(f"Cleaning up {name}...")
+            clf.cleanup()
+            del clf
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception as e:
+            print(f"Warning: Skipping {name} (failed): {e}")
+
+    # Process other classifiers (non-Llama Guard)
     for name, clf in classifiers:
         with maybe_track_emissions(run_name=f"moderation_{name.replace(' ', '_').lower()}"):
-            results.append(_evaluate_binary(name, clf, samples))
+            results.append(_evaluate_binary(name, clf, samples, invalid_policy=invalid_policy))
+        all_baseline_names.append(name)
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "run_metadata": gather_run_metadata(repo_root=str(Path(__file__).parent.parent)),
         "evaluation_config": {
             "dataset": str(args.data_path),
             "total_samples": len(samples),
-            "baselines": [n for n, _ in classifiers],
+            "baselines": all_baseline_names,
             "perspective_threshold": args.perspective_threshold,
             "device": args.device,
+            "invalid_policy": args.invalid_policy,
         },
         "results": results,
     }

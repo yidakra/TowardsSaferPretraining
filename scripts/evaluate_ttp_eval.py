@@ -20,7 +20,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Protocol
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -32,9 +32,35 @@ from src.clients.ttp_gemini import GeminiTTPEvaluator  # noqa: E402
 from src.models import HarmFormer  # noqa: E402
 from src.utils.codecarbon import maybe_track_emissions  # noqa: E402
 from src.utils.taxonomy import HarmLabel  # noqa: E402
+from src.utils.repro_metadata import gather_run_metadata  # noqa: E402
 
 
-def _evaluate_setup(name: str, clf, samples: List[TTPEvalSample], dimension: str) -> Dict[str, Any]:
+def _toxic_label() -> HarmLabel:
+    """Conservative fallback label for sensitivity analysis (invalid => toxic)."""
+    from src.utils.taxonomy import Dimension  # local import to keep startup cheap
+
+    return HarmLabel(
+        hate_violence=Dimension.TOXIC,
+        ideological=Dimension.TOXIC,
+        sexual=Dimension.TOXIC,
+        illegal=Dimension.TOXIC,
+        self_inflicted=Dimension.TOXIC,
+    )
+
+
+class Predictor(Protocol):
+    def predict(self, text: str) -> HarmLabel:
+        ...
+
+
+def _evaluate_setup(
+    name: str,
+    clf: Predictor,
+    samples: List[TTPEvalSample],
+    dimension: str,
+    *,
+    invalid_policy: str,
+) -> Dict[str, Any]:
     preds: List[HarmLabel] = []
     gts: List[HarmLabel] = []
     failed = 0
@@ -42,16 +68,38 @@ def _evaluate_setup(name: str, clf, samples: List[TTPEvalSample], dimension: str
         try:
             preds.append(clf.predict(s.body))
             gts.append(s.get_harm_label())
-        except Exception:
+        except Exception as e:
             failed += 1
-            continue
+            if failed <= 3:
+                print(f"[{name}] sample failed: {e}", file=sys.stderr)
+            if invalid_policy == "exclude":
+                continue
+            if invalid_policy == "non_toxic":
+                preds.append(HarmLabel())
+                gts.append(s.get_harm_label())
+                continue
+            if invalid_policy == "toxic":
+                preds.append(_toxic_label())
+                gts.append(s.get_harm_label())
+                continue
+            raise RuntimeError(f"Unknown invalid_policy: {invalid_policy}")
     metrics = calculate_metrics(predictions=preds, ground_truth=gts, dimension=dimension)
+
+    client_stats = None
+    if hasattr(clf, "get_stats") and callable(getattr(clf, "get_stats")):
+        try:
+            client_stats = clf.get_stats()  # type: ignore[attr-defined]
+        except Exception:
+            client_stats = None
+
     return {
         "setup": name,
         "total_samples": len(samples),
         "failed_samples": failed,
         "evaluated_samples": len(preds),
         "metrics": metrics,
+        "invalid_policy": invalid_policy,
+        "client_stats": client_stats,
     }
 
 
@@ -63,9 +111,29 @@ def main() -> int:
     p.add_argument("--output", required=True, help="Output JSON file")
 
     p.add_argument(
+        "--invalid-policy",
+        default=None,
+        choices=["exclude", "non_toxic", "toxic"],
+        help=(
+            "How to handle invalid/unparseable outputs or API failures. "
+            "If omitted, uses the setup's default behavior (OpenAI/OpenRouter typically fail-open; "
+            "Gemini/local typically raise and are excluded)."
+        ),
+    )
+
+    # Language filtering (TTP-Eval Lang column)
+    p.add_argument("--lang", nargs="+", help="Filter TTP-Eval by language code(s), e.g., --lang en es")
+    p.add_argument(
+        "--include-unknown-lang",
+        action="store_true",
+        help="Include samples with missing/unknown language codes when --lang is set",
+    )
+
+    p.add_argument(
         "--setups",
         nargs="+",
-        default=["perspective", "harmformer"],
+        # Default to local-only setups to avoid API costs/rate limits unless explicitly requested.
+        default=["harmformer"],
         choices=["perspective", "openai_ttp", "openrouter_ttp", "gemini_ttp", "harmformer", "llama_guard", "local_ttp"],
         help="Which setups to run",
     )
@@ -78,6 +146,11 @@ def main() -> int:
     # OpenAI
     p.add_argument("--openai-key", help="OpenAI API key (or set OPENAI_API_KEY)")
     p.add_argument("--openai-model", default="gpt-4o")
+    p.add_argument(
+        "--prompt-path",
+        default="prompts/TTP/TTP.txt",
+        help="Path to TTP prompt file (ChatML format)",
+    )
 
     # OpenRouter (OpenAI-compatible)
     p.add_argument("--openrouter-key", help="OpenRouter API key (or set OPENROUTER_API_KEY)")
@@ -97,7 +170,10 @@ def main() -> int:
 
     args = p.parse_args()
 
-    samples = TTPEvalLoader(args.data_path).load()
+    loader = TTPEvalLoader(args.data_path)
+    samples = loader.load()
+    if args.lang:
+        samples = loader.filter_by_lang(args.lang, include_unknown=args.include_unknown_lang)
     if args.limit:
         samples = samples[: args.limit]
 
@@ -131,20 +207,34 @@ def main() -> int:
         key = args.openai_key or os.environ.get("OPENAI_API_KEY")
         if not key:
             raise SystemExit("openai_ttp selected but no OPENAI_API_KEY/--openai-key provided.")
-        setups.append((f"TTP ({args.openai_model})", OpenAITTPClient(api_key=key, model=args.openai_model)))
+        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
+        setups.append(
+            (
+                f"TTP ({args.openai_model})",
+                OpenAITTPClient(
+                    api_key=key,
+                    model=args.openai_model,
+                    prompt_path=args.prompt_path,
+                    fail_open=fail_open,
+                ),
+            )
+        )
 
     if "openrouter_ttp" in args.setups:
         key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
         if not key:
             raise SystemExit("openrouter_ttp selected but no OPENROUTER_API_KEY/--openrouter-key provided.")
+        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
         setups.append(
             (
                 f"TTP (OpenRouter: {args.openrouter_model})",
                 OpenRouterTTPClient(
                     api_key=key,
                     model=args.openrouter_model,
+                    prompt_path=args.prompt_path,
                     referer=args.openrouter_referer,
                     title=args.openrouter_title,
+                    fail_open=fail_open,
                 ),
             )
         )
@@ -153,7 +243,12 @@ def main() -> int:
         key = args.gemini_key or os.environ.get("GEMINI_API_KEY")
         if not key:
             raise SystemExit("gemini_ttp selected but no GEMINI_API_KEY/--gemini-key provided.")
-        setups.append((f"TTP (Gemini: {args.gemini_model})", GeminiTTPEvaluator(api_key=key, model=args.gemini_model)))
+        setups.append(
+            (
+                f"TTP (Gemini: {args.gemini_model})",
+                GeminiTTPEvaluator(api_key=key, model=args.gemini_model, prompt_path=args.prompt_path),
+            )
+        )
 
     if "local_ttp" in args.setups:
         if not args.local_model:
@@ -167,32 +262,47 @@ def main() -> int:
                         device=args.device,
                         dtype=args.dtype,
                         quantization=args.quantization,
+                        prompt_path=args.prompt_path,
                     ),
                 )
             )
 
     results: List[Dict[str, Any]] = []
+    invalid_policy = args.invalid_policy or "exclude"
     for name, clf in setups:
         with maybe_track_emissions(run_name=f"ttp_eval_{name.replace(' ', '_').lower()}"):
-            results.append(_evaluate_setup(name, clf, samples, dimension=args.dimension))
+            results.append(
+                _evaluate_setup(
+                    name,
+                    clf,
+                    samples,
+                    dimension=args.dimension,
+                    invalid_policy=invalid_policy,
+                )
+            )
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
+    payload: Dict[str, Any] = {
+        "run_metadata": gather_run_metadata(repo_root=str(Path(__file__).parent.parent)),
         "evaluation_config": {
             "dataset": args.data_path,
             "total_samples": len(samples),
             "dimension": args.dimension,
+            "lang_filter": args.lang,
+            "include_unknown_lang": args.include_unknown_lang,
             "setups": [n for n, _ in setups],
             "device": args.device,
             "openai_model": args.openai_model,
             "openrouter_model": args.openrouter_model,
             "gemini_model": args.gemini_model,
+            "prompt_path": args.prompt_path,
             "perspective_threshold": args.perspective_threshold,
             "perspective_chunk_chars": args.perspective_chunk_chars,
             "local_models": args.local_model,
             "dtype": args.dtype,
             "quantization": args.quantization,
+            "invalid_policy": args.invalid_policy,
         },
         "results": results,
     }

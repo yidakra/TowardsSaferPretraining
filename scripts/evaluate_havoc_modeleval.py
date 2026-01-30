@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.data_loaders import HAVOCLoader  # noqa: E402
 from src.utils.taxonomy import HarmLabel, Dimension  # noqa: E402
 from src.utils.codecarbon import maybe_track_emissions  # noqa: E402
+from src.utils.repro_metadata import gather_run_metadata  # noqa: E402
 
 
 def _parse_label_list(label_str: str) -> HarmLabel:
@@ -106,6 +107,7 @@ def main() -> int:
             "model_name": args.model_key,
             "total_samples": total_samples,
             "error_count": error_count,
+            "loader_stats": loader.get_load_stats(),
             "leakage": {
                 "neutral": {"total": totals["neutral"], "leaked": leaked_counts["neutral"]},
                 "passive": {"total": totals["passive"], "leaked": leaked_counts["passive"]},
@@ -125,6 +127,7 @@ def main() -> int:
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
+        output_data["run_metadata"] = gather_run_metadata(repo_root=str(Path(__file__).parent.parent))
         json.dump(output_data, f, indent=2)
 
     print(f"Saved: {out_path}")

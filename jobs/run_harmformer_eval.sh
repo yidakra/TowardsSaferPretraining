@@ -53,9 +53,16 @@ mkdir -p results/codecarbon
 export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
 export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
-# Run HarmFormer test with error checking
-if python scripts/test_harmformer.py; then
+# Run HarmFormer evaluation on TTP-Eval (Table 6)
+mkdir -p results/harmformer
+if python scripts/evaluate_ttp_eval.py \
+  --data-path data/TTP-Eval/TTPEval.tsv \
+  --setups harmformer \
+  --device cuda \
+  --dimension toxic \
+  --output results/harmformer/harmformer_results.json; then
     echo "HarmFormer Evaluation Complete!"
+    echo "Results saved to: results/harmformer/harmformer_results.json"
 else
     echo "Error: HarmFormer evaluation failed" >&2
     exit 1

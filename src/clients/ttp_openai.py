@@ -59,12 +59,14 @@ class OpenAITTPClient:
         temperature: float = 0.0,
         max_retries: int = 3,
         retry_delay: float = 1.0,
+        fail_open: bool = True,
     ):
         self.client = OpenAI(api_key=api_key)
         self.model = model
         self.temperature = temperature
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.fail_open = fail_open
 
         prompt_file = Path(prompt_path)
         if not prompt_file.exists():
@@ -189,14 +191,16 @@ class OpenAITTPClient:
                     time.sleep(self.retry_delay)
                 else:
                     self.failed_requests += 1
-                    fail_open_label = HarmLabel()
-                    return TTPResult(
-                        url=url,
-                        body=body,
-                        predicted_label=fail_open_label,
-                        raw_response=last_content,
-                        error=str(e),
-                    )
+                    if self.fail_open:
+                        fail_open_label = HarmLabel()
+                        return TTPResult(
+                            url=url,
+                            body=body,
+                            predicted_label=fail_open_label,
+                            raw_response=last_content,
+                            error=str(e),
+                        )
+                    raise
 
         raise RuntimeError("Unexpected execution path in evaluate method")
 

@@ -210,6 +210,52 @@ class TTPEvalLoader:
 
         return filtered
 
+    def filter_by_lang(
+        self,
+        langs: List[str],
+        *,
+        include_unknown: bool = False,
+        case_insensitive: bool = True,
+    ) -> List[TTPEvalSample]:
+        """
+        Filter samples by language codes in the Lang column.
+
+        Args:
+            langs: List of language codes (e.g., ["en", "es"]).
+            include_unknown: Include samples with missing/unknown language codes.
+            case_insensitive: Compare languages case-insensitively.
+
+        Returns:
+            Filtered list of samples.
+        """
+        if self._samples is None:
+            self.load()
+
+        assert self._samples is not None, "Samples should be loaded after load() call"
+
+        if not langs:
+            return list(self._samples)
+
+        unknown_values = {"", "unknown", "unk", "na", "n/a"}
+
+        if case_insensitive:
+            lang_set = {l.strip().lower() for l in langs if l and l.strip()}
+        else:
+            lang_set = {l.strip() for l in langs if l and l.strip()}
+
+        filtered: List[TTPEvalSample] = []
+        for sample in self._samples:
+            raw_lang = (sample.lang or "").strip()
+            key = raw_lang.lower() if case_insensitive else raw_lang
+
+            if include_unknown and (key in unknown_values):
+                filtered.append(sample)
+                continue
+            if key in lang_set:
+                filtered.append(sample)
+
+        return filtered
+
     def get_statistics(self) -> Dict[str, Any]:
         """
         Get dataset statistics.

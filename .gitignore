@@ -48,6 +48,10 @@ logs/
 *.out
 *.err
 
+# Figures (regenerate; do not version)
+*.png
+*.svg
+
 # Model checkpoints
 checkpoints/
 models/
@@ -70,11 +74,13 @@ credentials.json
 config.secrets.json
 secrets/*.json
 
-# Large data files (but keep results directories)
+# Large data files
 datasets/samples/*.jsonl
 *.parquet.tmp
-results/
 archives/
+
+# Results (generated; do not version)
+results/
 
 # Temporary/test files
 generate_havoc_report.py
@@ -82,6 +88,23 @@ generate_havoc_report.py
 test_*.json
 *.bak
 *.tmp
+
+# Local-only helper files
+.hf_paths_env
+
+# Slides / presentation assets (not needed for reproduction)
+presentation_slides/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.toc
+*.lof
+*.lot
 
 # OS
 .DS_Store

@@ -123,6 +123,11 @@ class HAVOCLoader:
         if self.modeleval_filepath and not self.modeleval_filepath.exists():
             raise FileNotFoundError(f"Model evaluation file not found: {modeleval_filepath}")
         self._samples: Optional[List[HAVOCSample]] = None
+        self._load_stats: Dict[str, Any] = {}
+
+    def get_load_stats(self) -> Dict[str, Any]:
+        """Return best-effort loader stats for debugging reproducibility issues."""
+        return dict(self._load_stats)
 
     def _parse_label_list(self, label_str: str) -> HarmLabel:
         """
@@ -171,86 +176,61 @@ class HAVOCLoader:
 
         samples: List[HAVOCSample] = []
 
-        # Use csv.reader instead of DictReader for robustness: havoc.tsv can contain
-        # a small number of malformed rows (e.g., extra tabs). We reconstruct
-        # Prefix/Suffix/PrefixLab in a best-effort way and skip rows we can't parse.
-        # NOTE: we keep Python's default CSV quoting behavior here because the released TSVs
-        # contain quote characters and the corresponding `havoc_modeleval.tsv` is parsed with
-        # the same behavior. A very small number of rows contain unbalanced quotes; we handle
-        # those with best-effort reconstruction below.
-        with open(self.filepath, 'r', encoding='utf-8', errors='replace', newline='') as f:
-            reader = csv.reader(f, delimiter='\t')
-            try:
-                header = next(reader)
-            except StopIteration:
+        self._load_stats = {
+            "havoc_rows_loaded": 0,
+            "havoc_rows_skipped": 0,
+            "havoc_rows_with_extra_tabs": 0,
+            "havoc_rows_short": 0,
+            "modeleval_rows_read": 0,
+            "modeleval_duplicate_keys": 0,
+            "modeleval_matched_samples": 0,
+            "modeleval_unmatched_samples": 0,
+        }
+
+        # Important for reproducibility: the released havoc.tsv contains a small number of
+        # rows with malformed/unbalanced quotes. Python's CSV reader can merge lines in this
+        # situation, reducing the loaded sample count (e.g., 10,344 instead of 10,376).
+        #
+        # We therefore parse havoc.tsv line-by-line, treating tab as a hard delimiter and
+        # treating quotes as literal characters.
+        with open(self.filepath, "r", encoding="utf-8", errors="replace") as f:
+            header_line = f.readline()
+            if not header_line:
                 self._samples = []
                 return []
 
+            header = header_line.rstrip("\n").split("\t")
             if header[:3] != ["Prefix", "Suffix", "PrefixLab"]:
                 raise ValueError(
                     f"Unexpected HAVOC header {header[:3]} (expected ['Prefix','Suffix','PrefixLab'])."
                 )
 
-            for line_number, row in enumerate(reader, start=2):
-                # Expected row = [Prefix, Suffix, PrefixLab]
-                if not row:
+            for line_number, line in enumerate(f, start=2):
+                line = (line or "").rstrip("\n")
+                if not line:
                     continue
 
-                if len(row) == 3:
-                    prefix, suffix, prefix_lab_str = row
-                elif len(row) > 3:
-                    # Assume stray tabs landed in the suffix; keep first column as Prefix,
-                    # last column as PrefixLab, and stitch the middle back into Suffix.
-                    prefix = row[0]
-
-                    # Validate if the last column looks like a valid label (starts with '[')
-                    potential_label = row[-1].strip()
-                    if potential_label.startswith('['):
-                        try:
-                            # Try to parse as a valid label list to confirm it's not trailing garbage
-                            ast.literal_eval(potential_label)
-                            prefix_lab_str = row[-1]
-                            suffix = "\t".join(row[1:-1])
-                            logger.warning(
-                                f"HAVOC TSV row {line_number}: expected 3 fields, got {len(row)}; "
-                                "reconstructed suffix by joining middle fields."
-                            )
-                        except (ValueError, SyntaxError):
-                            # Last column starts with '[' but is not valid Python list - treat as garbage
-                            prefix_lab_str = ""
-                            suffix = "\t".join(row[1:])
-                            logger.warning(
-                                f"HAVOC TSV row {line_number}: expected 3 fields, got {len(row)}; "
-                                f"last column '{potential_label}' appears to be label-like but is invalid, "
-                                "treating entire tail as suffix."
-                            )
-                    else:
-                        # Last column doesn't look like a label - treat entire tail as suffix
-                        prefix_lab_str = ""
-                        suffix = "\t".join(row[1:])
-                        logger.warning(
-                            f"HAVOC TSV row {line_number}: expected 3 fields, got {len(row)}; "
-                            f"last column '{potential_label}' doesn't match expected label pattern, "
-                            "treating entire tail as suffix."
-                        )
-                else:  # len(row) == 1 or 2
-                    prefix = row[0]
-                    suffix = row[1] if len(row) == 2 else ""
-                    prefix_lab_str = ""
+                parts = line.split("\t")
+                if len(parts) < 3:
+                    self._load_stats["havoc_rows_short"] += 1
+                    self._load_stats["havoc_rows_skipped"] += 1
                     logger.warning(
-                        f"HAVOC TSV row {line_number}: expected 3 fields, got {len(row)}; "
-                        "using empty label."
+                        "HAVOC TSV row %s: expected >=3 tab-separated fields, got %s; skipping",
+                        line_number,
+                        len(parts),
                     )
+                    continue
+
+                if len(parts) > 3:
+                    self._load_stats["havoc_rows_with_extra_tabs"] += 1
+
+                prefix = parts[0]
+                prefix_lab_str = parts[-1]
+                suffix = "\t".join(parts[1:-1])
 
                 prefix_label = self._parse_label_list(prefix_lab_str)
-
-                samples.append(
-                    HAVOCSample(
-                        prefix=prefix,
-                        suffix=suffix,
-                        prefix_label=prefix_label,
-                    )
-                )
+                samples.append(HAVOCSample(prefix=prefix, suffix=suffix, prefix_label=prefix_label))
+                self._load_stats["havoc_rows_loaded"] += 1
 
         # Load model evaluations if available
         if self.modeleval_filepath:
@@ -301,6 +281,7 @@ class HAVOCLoader:
         with open(self.modeleval_filepath, 'r', encoding='utf-8', errors='replace', newline='') as f:
             reader = csv.DictReader(f, delimiter='\t')
             for row in reader:
+                self._load_stats["modeleval_rows_read"] += 1
                 cached_eval_rows.append(row)
                 prefix = (row.get('Prefix') or '').strip()
                 suffix = (row.get('Suffix') or '').strip()
@@ -312,6 +293,8 @@ class HAVOCLoader:
                         continue
                     model_eval_lookup[key] = row
 
+        self._load_stats["modeleval_duplicate_keys"] = duplicate_keys
+
         if duplicate_keys:
             logger.warning(
                 f"Duplicate key(s) found in model evaluations: {duplicate_keys} duplicates; "
@@ -320,6 +303,8 @@ class HAVOCLoader:
 
         # Second pass: match and merge with samples
         matched_count = 0
+        unmatched_examples = []
+        max_unmatched_examples = 5
         for sample in samples:
             sample_key = self._create_sample_key(sample.prefix, sample.suffix)
             eval_row = model_eval_lookup.get(sample_key)
@@ -328,14 +313,26 @@ class HAVOCLoader:
                 self._populate_model_evaluations(sample, eval_row)
                 matched_count += 1
             else:
-                # No explicit match found - this is a problem
-                logger.warning(
-                    f"No matching model evaluation found for sample with prefix: "
-                    f"{sample.prefix[:50]}... and suffix: {sample.suffix[:50]}..."
-                )
+                # No explicit match found. Avoid spamming logs; keep a few examples.
+                if len(unmatched_examples) < max_unmatched_examples:
+                    unmatched_examples.append((sample.prefix[:50], sample.suffix[:50]))
 
         # Log summary statistics
         total_samples = len(samples)
+        self._load_stats["modeleval_matched_samples"] = matched_count
+        self._load_stats["modeleval_unmatched_samples"] = max(total_samples - matched_count, 0)
+
+        if matched_count < total_samples:
+            msg = (
+                f"No explicit model evaluation match for {total_samples - matched_count}/{total_samples} HAVOC samples. "
+                "Will attempt index-based fallback matching; sample order must be identical between files."
+            )
+            if unmatched_examples:
+                examples_str = "; ".join(
+                    [f"prefix='{p}...', suffix='{s}...'" for (p, s) in unmatched_examples]
+                )
+                msg = msg + f" Examples: {examples_str}"
+            logger.warning(msg)
         logger.info(
             f"Model evaluation matching: {matched_count}/{total_samples} samples matched "
             f"({len(model_eval_lookup)} evaluation rows available)"
@@ -366,6 +363,11 @@ class HAVOCLoader:
                         f"with eval row {idx}"
                     )
                     self._populate_model_evaluations(sample, eval_row)
+
+        # Recompute match statistics after best-effort fallback.
+        final_matched = sum(1 for s in samples if s.model_evaluations)
+        self._load_stats["modeleval_matched_samples"] = final_matched
+        self._load_stats["modeleval_unmatched_samples"] = max(total_samples - final_matched, 0)
 
     def filter_by_leakage_type(self, leakage_type: str) -> List[HAVOCSample]:
         """

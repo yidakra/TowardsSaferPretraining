@@ -56,7 +56,6 @@ export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$HOME/TowardsSaferPretrai
 export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
 # Ensure required keys exist
-# These jobs exists solely to run API baselines. If keys are missing, fail immediately
 if [ -z "${OPENAI_API_KEY:-}" ]; then
   echo "Error: OPENAI_API_KEY is required for TTP baseline" >&2
   exit 1
@@ -66,7 +65,7 @@ if [ -z "${PERSPECTIVE_API_KEY:-}" ]; then
   exit 1
 fi
 
-# Run ONLY API/network baselines (Table 7 API rows)
+# Run API baselines (Table 7 API rows): Perspective + TTP on full dataset
 if python scripts/evaluate_openai_moderation.py \
   --baselines perspective ttp \
   --device cpu \

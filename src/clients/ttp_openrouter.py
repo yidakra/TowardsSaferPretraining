@@ -33,6 +33,7 @@ class OpenRouterTTPClient(OpenAITTPClient):
         temperature: float = 0.0,
         max_retries: int = 3,
         retry_delay: float = 1.0,
+        fail_open: bool = True,
         base_url: str = DEFAULT_BASE_URL,
         referer: Optional[str] = None,
         title: Optional[str] = None,
@@ -44,6 +45,7 @@ class OpenRouterTTPClient(OpenAITTPClient):
             temperature=temperature,
             max_retries=max_retries,
             retry_delay=retry_delay,
+            fail_open=fail_open,
         )
 
         headers: Dict[str, str] = {}

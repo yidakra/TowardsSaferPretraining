@@ -118,6 +118,21 @@ class TestTTPEvalLoader:
         # because some samples may be topical (harmful but not necessarily toxic)
         assert stats['toxic_samples'] + stats['safe_samples'] <= stats['total_samples']
 
+    def test_filter_by_lang(self, loader):
+        """Test filtering by language codes."""
+        samples = loader.load()
+        if not samples:
+            pytest.skip("No samples loaded from dataset")
+
+        # Pick the first sample's language as a target filter
+        lang = (samples[0].lang or "").strip()
+        if not lang:
+            pytest.skip("No language code available in sample")
+
+        filtered = loader.filter_by_lang([lang])
+        assert len(filtered) > 0
+        assert all((s.lang or "").strip().lower() == lang.lower() for s in filtered)
+
 
 class TestHAVOCLoader:
     """Tests for HAVOC dataset loader."""

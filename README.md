@@ -16,8 +16,7 @@ TowardsSaferPretraining/
 │   └── TTP/
 ├── scripts/              # local entrypoints (CPU/API/GPU depending on script)
 ├── src/                  # library code (clients, benchmarks, loaders, utils)
-├── results/              # outputs (JSON) + CodeCarbon emissions
-├── logs/                 # Slurm stdout/stderr (when using jobs/*.sh)
+├── results/              # generated outputs (JSON) + CodeCarbon emissions (not versioned)
 ├── LICENSE
 └── README.md
 ```
@@ -55,37 +54,67 @@ python -m pip install -r requirements.txt
   - **OpenAI TTP**: `OPENAI_API_KEY` (Table 3, Table 4 “TTP” row, HAVOC judge=TTP)
   - **OpenRouter TTP**: `OPENROUTER_API_KEY` (+ optional `OPENROUTER_MODEL`, default `openai/gpt-4o`) (Table 3/4 via `--setups openrouter_ttp`)
   - **Gemini TTP**: `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`, default `gemini-2.0-flash`) (Table 4 Gemini row)
-  - **Perspective**: `PERSPECTIVE_API_KEY` (Table 4 Perspective row)
-    - Or set `ENABLE_PERSPECTIVE_WITH_GEMINI_KEY=1` to reuse `GEMINI_API_KEY` for Perspective if that key/project is enabled for the Perspective API.
   - **Llama Guard (HF gated model)**: `HUGGINGFACE_HUB_TOKEN` (or `HF_TOKEN`) (baseline comparisons)
 - **Emissions tracking (CodeCarbon)**: enabled by default. Outputs go to `results/codecarbon/`. Set `DISABLE_CODECARBON=1` to disable.
 
 ### Local (CPU/API-only)
 
-#### Table 4 (Toxic dimension): Perspective vs TTP variants on TTP-Eval
+#### Table 4 (Toxic dimension): (Perspective omitted)
 
-- **Perspective + Gemini TTP (no GPU required)**:
+Table 4 in the paper includes a Perspective row. We do **not** run Perspective by default, but you can still reproduce
+the other Table 4 baselines on TTP-Eval:
 
-```bash
-python scripts/evaluate_ttp_eval.py \
-  --setups perspective gemini_ttp \
-  --perspective-key "$PERSPECTIVE_API_KEY" \
-  --gemini-key "$GEMINI_API_KEY" \
-  --gemini-model "${GEMINI_MODEL:-gemini-2.0-flash}" \
-  --dimension toxic \
-  --output results/ttp_eval_baselines/results.json
-```
-
-- **Perspective + OpenAI TTP (no GPU required; requires OpenAI quota/billing)**:
+- **TTP (OpenAI)**:
 
 ```bash
 python scripts/evaluate_ttp_eval.py \
-  --setups perspective openai_ttp \
-  --perspective-key "$PERSPECTIVE_API_KEY" \
+  --setups openai_ttp \
   --openai-key "$OPENAI_API_KEY" \
+  --openai-model gpt-4o \
+  --dimension toxic \
+  --output results/ttp_eval/ttp_results.json
+```
+
+- **TTP (OpenRouter)**:
+
+```bash
+python scripts/evaluate_ttp_eval.py \
+  --setups openrouter_ttp \
+  --openrouter-key "$OPENROUTER_API_KEY" \
+  --openrouter-model "${OPENROUTER_MODEL:-openai/gpt-4o}" \
   --dimension toxic \
   --output results/ttp_eval_baselines/results.json
 ```
+
+- **HarmFormer (no API)**:
+
+```bash
+python scripts/evaluate_ttp_eval.py \
+  --setups harmformer \
+  --device cuda \
+  --dimension toxic \
+  --output results/ttp_eval_baselines/results.json
+```
+
+Optional (requires HF access to gated models):
+- `--setups llama_guard`
+- `--setups local_ttp --local-model google/gemma-2-27b-it`
+
+- **Gemini TTP (Gemini 2.0 Flash)**:
+
+```bash
+python scripts/evaluate_ttp_eval.py \
+  --setups gemini_ttp \
+  --gemini-key "$GEMINI_API_KEY" \
+  --gemini-model "gemini-2.0-flash" \
+  --dimension toxic \
+  --output results/ttp_eval_baselines/table4_gemini_ttp.json
+```
+
+- **Local TTP (Gemma 2 27B + LLaMa 32B)** (requires HF access + `HUGGINGFACE_HUB_TOKEN`):
+  - Set `GEMMA_2_27B_MODEL_ID` (default: `google/gemma-2-27b-it`)
+  - Set `LLAMA_32B_MODEL_ID` (paper “R1 32B” row) to `deepseek-ai/DeepSeek-R1-Distill-Qwen-32B` (public 32B distill release)
+  - Then run: `sbatch jobs/run_ttp_eval_local.sh` (requests **2× A100** to fit these models without quantization)
 
 #### Table 3 (Toxic dimension): TTP quality on TTP-Eval (OpenAI)
 
@@ -106,14 +135,14 @@ Run one model column:
 python scripts/evaluate_havoc_modeleval.py \
   --data-path data/HAVOC/havoc.tsv \
   --modeleval-path data/HAVOC/havoc_modeleval.tsv \
-  --model-key gemma_2b \
-  --output results/havoc/gemma_2b_results.json
+  --model-key gemma_9b \
+  --output results/havoc/gemma_9b_results.json
 ```
 
 Or run all model keys locally:
 
 ```bash
-for k in gemma_2b gemma_9b gemma_27b llama_1b llama_3b mistral_7b; do \
+for k in gemma_9b llama_3b mistral_7b; do \
   python scripts/evaluate_havoc_modeleval.py --model-key \"$k\" --output \"results/havoc/${k}_results.json\"; \
 done
 ```
@@ -122,6 +151,34 @@ done
 
 ```bash
 python scripts/generate_report.py
+```
+
+#### Regenerating figures (PNG; not versioned)
+
+- `havoc-topical-counts.png`
+- `havoc-rtp-compare.png`
+- `multilingual-f1.png`
+
+Generate them from locally generated JSON results in `results/` (run the relevant evaluation scripts first; results are not shipped in the repo):
+
+```bash
+bash scripts/generate_figures.sh
+```
+
+#### Table 8 (large-scale toxicity prevalence; **approximate**)
+
+The paper’s Table 8 estimates toxicity prevalence on **1,000,000 samples** from webscale datasets (CommonCrawl, C4, FineWeb).
+This repo does **not** ship those datasets; you must provide an input file. To fit a **$20 budget**, our prevalence script defaults to
+**10,000 samples** (set `--limit 1000000` to match the paper’s sampling count).
+
+Example (JSONL with a `text` field; uses the default `harmformer` setup to avoid per-sample API costs):
+
+```bash
+python scripts/estimate_toxicity_prevalence.py \
+  --input-path /path/to/dataset.jsonl \
+  --input-format jsonl \
+  --text-field text \
+  --output results/prevalence/prevalence_10k.json
 ```
 
 ### Snellius (Slurm)
@@ -154,19 +211,13 @@ This job can cover local baselines (HarmFormer, Llama Guard prompt variants) wit
 sbatch jobs/run_baselines_local.sh
 ```
 
-If you want the API rows (Perspective + OpenAI TTP), run:
+If you want an API TTP row, run:
 
 ```bash
 sbatch jobs/run_baselines_api.sh
 ```
 
-#### Table 4 (Toxic dimension): Perspective vs OpenAI TTP (API rows on TTP-Eval)
-
-```bash
-sbatch jobs/run_ttp_eval_api.sh
-```
-
-#### Table 7 (OpenAI Moderation test set): Perspective/Llama Guard/TTP/HarmFormer
+#### Table 7 (OpenAI Moderation test set): Llama Guard / TTP / HarmFormer (Perspective omitted)
 
 First, fetch the dataset (one-time):
 
