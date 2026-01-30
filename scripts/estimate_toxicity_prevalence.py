@@ -22,10 +22,41 @@ from typing import Any, Dict, Iterable, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.clients import PerspectiveAPI, LlamaGuard, OpenRouterTTPClient  # noqa: E402
-from src.clients.ttp_openai import OpenAITTPClient  # noqa: E402
-from src.models import HarmFormer  # noqa: E402
-from src.utils.taxonomy import Dimension, HarmLabel  # noqa: E402
+# NOTE: Heavy imports are deferred so `--help` is fast and does not require model downloads.
+PerspectiveAPI: Any = None
+LlamaGuard: Any = None
+OpenRouterTTPClient: Any = None
+OpenAITTPClient: Any = None
+HarmFormer: Any = None
+Dimension: Any = None
+HarmLabel: Any = None
+
+
+def _lazy_imports() -> None:
+    global PerspectiveAPI, LlamaGuard, OpenRouterTTPClient
+    global OpenAITTPClient
+    global HarmFormer
+    global Dimension, HarmLabel
+
+    if HarmFormer is not None:
+        return
+
+    from src.clients import (
+        PerspectiveAPI as _PerspectiveAPI,
+        LlamaGuard as _LlamaGuard,
+        OpenRouterTTPClient as _OpenRouterTTPClient,
+    )
+    from src.clients.ttp_openai import OpenAITTPClient as _OpenAITTPClient
+    from src.models import HarmFormer as _HarmFormer
+    from src.utils.taxonomy import Dimension as _Dimension, HarmLabel as _HarmLabel
+
+    PerspectiveAPI = _PerspectiveAPI
+    LlamaGuard = _LlamaGuard
+    OpenRouterTTPClient = _OpenRouterTTPClient
+    OpenAITTPClient = _OpenAITTPClient
+    HarmFormer = _HarmFormer
+    Dimension = _Dimension
+    HarmLabel = _HarmLabel
 
 
 @dataclass(frozen=True)
@@ -111,6 +142,7 @@ def _load_samples(path: Path, *, fmt: str, text_field: str, limit: int, method: 
 
 
 def _make_classifier(args):
+    _lazy_imports()
     if args.setup == "harmformer":
         return HarmFormer(device=args.device, batch_size=args.batch_size)
 
@@ -151,6 +183,7 @@ def _make_classifier(args):
 
 
 def _accumulate_counts(label: HarmLabel, counts: _Counts) -> _Counts:
+    _lazy_imports()
     return _Counts(
         overall_toxic=counts.overall_toxic + (1 if label.is_toxic() else 0),
         H=counts.H + (1 if label.hate_violence == Dimension.TOXIC else 0),
@@ -203,6 +236,8 @@ def main() -> int:
     p.add_argument("--openrouter-title", default=os.environ.get("OPENROUTER_TITLE"))
 
     args = p.parse_args()
+
+    _lazy_imports()
 
     in_path = Path(args.input_path)
     if not in_path.exists():

@@ -39,7 +39,7 @@ TowardsSaferPretraining/
 4. To access HarmFormer’s predictions on the entire C4 dataset, please visit [this link](https://huggingface.co/datasets/themendu/SafeC4).
 5. We release HarmFormer [here in HuggingFace](https://huggingface.co/themendu/HarmFormer)
 
-## Reproducing paper results (what we currently support)
+## Reproducing paper results
 
 ### Common setup (local or Snellius)
 
@@ -49,6 +49,14 @@ source venv/bin/activate
 python -m pip install -U pip
 python -m pip install -r requirements.txt
 ```
+
+All commands below assume you are in the same shell where you ran `source venv/bin/activate`.
+
+If you prefer not to activate the venv, you can prefix commands with:
+```bash
+PY=./venv/bin/python
+```
+and then replace `python ...` with `$PY ...`.
 
 - **API keys via env**:
   - **OpenAI TTP**: `OPENAI_API_KEY` (Table 3, Table 4 “TTP” row, HAVOC judge=TTP)
@@ -142,8 +150,10 @@ python scripts/evaluate_havoc_modeleval.py \
 Or run all model keys locally:
 
 ```bash
-for k in gemma_9b llama_3b mistral_7b; do \
-  python scripts/evaluate_havoc_modeleval.py --model-key \"$k\" --output \"results/havoc/${k}_results.json\"; \
+for k in gemma_2b gemma_9b gemma_27b llama_1b llama_3b mistral_7b; do \
+  python scripts/evaluate_havoc_modeleval.py \
+    --model-key "$k" \
+    --output "results/havoc/${k}_results.json"; \
 done
 ```
 
@@ -159,10 +169,103 @@ python scripts/generate_report.py
 - `havoc-rtp-compare.png`
 - `multilingual-f1.png`
 
-Generate them from locally generated JSON results in `results/` (run the relevant evaluation scripts first; results are not shipped in the repo):
+One-command reproduction (runs prerequisite evaluations if missing):
+
+```bash
+bash scripts/reproduce_paper_figures.sh
+```
+
+Useful environment variables:
+- `FIGURE_DEVICE=cuda|cpu` (default: auto-detect)
+- `RTP_LIMIT=50000` (optional; empty => full dataset)
+- `RTP_STREAMING=1` (default: 1)
+- `TRANSLATED_DIR=data/TTP-Eval/translated/nllb-200-3.3B` (optional)
+
+Lightweight plotting only (requires precomputed JSON inputs under `results/`):
 
 ```bash
 bash scripts/generate_figures.sh
+```
+
+### Multilingual extension
+
+This extension evaluates toxicity classification on *translated* TTP-Eval (TTP-Eval multilingual). The repo already includes translated TSVs under `data/TTP-Eval/translated/`.
+
+**Optional: regenerate translations (slow; GPU recommended)**
+
+```bash
+python scripts/translate_ttp_eval.py \
+  --model-id facebook/nllb-200-distilled-600M \
+  --src-lang eng_Latn \
+  --tgt-langs spa_Latn fra_Latn deu_Latn arb_Arab hin_Deva zho_Hans
+```
+
+Expected output files (TSV):
+- `data/TTP-Eval/translated/nllb-200-distilled-600M/TTPEval_spa_Latn.tsv` (and the other requested languages)
+
+**Run multilingual evaluation (writes one JSON per language per setup)**
+
+Required env vars (only if you run Llama Guard):
+- `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN`
+
+```bash
+python scripts/evaluate_ttp_eval_multilingual.py \
+  --translated-dir data/TTP-Eval/translated/nllb-200-3.3B \
+  --langs spa_Latn fra_Latn deu_Latn arb_Arab hin_Deva zho_Hans \
+  --setups harmformer llama_guard \
+  --device cuda \
+  --dimension toxic \
+  --output-dir results/ttp_eval_multilingual
+```
+
+Expected output files (JSON):
+- `results/ttp_eval_multilingual/harmformer_spa_Latn.json`
+- `results/ttp_eval_multilingual/llama_guard_spa_Latn.json`
+- (same pattern for the other languages)
+
+To regenerate the multilingual plot:
+
+```bash
+python scripts/plot_multilingual_f1.py \
+  --multilingual-results-dir results/ttp_eval_multilingual \
+  --out multilingual-f1.png
+```
+
+### RTP extension
+
+This extension evaluates “leakage” on RealToxicityPrompts (RTP) using the dataset-provided continuations (no generation) and judges toxicity with HarmFormer.
+
+```bash
+python scripts/evaluate_rtp_continuations.py \
+  --device cuda \
+  --batch-size 32 \
+  --output results/rtp/rtp_continuations_harmformer.json
+```
+
+Expected output file (JSON):
+- `results/rtp/rtp_continuations_harmformer.json`
+
+Notes:
+- With very small `--limit` values, it's normal to get `0.0%` leakage (which can make the RTP bars look “missing” in the plot). For a meaningful estimate, use a larger sample size (GPU recommended).
+- For a quick CPU-friendly sanity check that produces non-zero bars, you can judge `prompt_and_continuation` (this is **not** the same metric as continuation-only leakage):
+
+```bash
+python scripts/evaluate_rtp_continuations.py \
+  --device cpu \
+  --batch-size 16 \
+  --limit 50 \
+  --max-chars 256 \
+  --judge-text prompt_and_continuation \
+  --output results/rtp/rtp_continuations_harmformer_smoke.json
+```
+
+To regenerate the HAVOC vs RTP plot:
+
+```bash
+python scripts/plot_havoc_rtp_compare.py \
+  --havoc-results-dir results/havoc \
+  --rtp-results-json results/rtp/rtp_continuations_harmformer.json \
+  --out havoc-rtp-compare.png
 ```
 
 #### Table 8 (large-scale toxicity prevalence; **approximate**)
@@ -195,6 +298,28 @@ sbatch setup_env.sh
 
 ```bash
 sbatch jobs/run_harmformer_eval.sh
+```
+
+#### Multilingual extension (translation + multilingual evaluation)
+
+Optional translation (slow; regenerates TSVs under `data/TTP-Eval/translated/`):
+
+```bash
+sbatch jobs/run_translate_ttp_eval.sh
+```
+
+Multilingual evaluation (writes JSONs under `results/ttp_eval_multilingual/`):
+
+```bash
+sbatch jobs/run_multilingual_extension.sh
+```
+
+#### RTP extension (HarmFormer on RTP continuations)
+
+Writes `results/rtp/rtp_continuations_harmformer.json`:
+
+```bash
+sbatch jobs/run_rtp_extension.sh
 ```
 
 #### Table 3 (Toxic dimension): TTP quality on TTP-Eval (OpenAI)

@@ -24,19 +24,100 @@ from typing import Any, Dict, List, Tuple, Protocol
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.data_loaders import TTPEvalLoader, TTPEvalSample  # noqa: E402
-from src.benchmarks.metrics import calculate_metrics  # noqa: E402
-from src.clients import PerspectiveAPI, LlamaGuard, TransformersTTPClient, OpenRouterTTPClient  # noqa: E402
-from src.clients.ttp_openai import OpenAITTPClient  # noqa: E402
-from src.clients.ttp_gemini import GeminiTTPEvaluator  # noqa: E402
-from src.models import HarmFormer  # noqa: E402
-from src.utils.codecarbon import maybe_track_emissions  # noqa: E402
-from src.utils.taxonomy import HarmLabel  # noqa: E402
-from src.utils.repro_metadata import gather_run_metadata  # noqa: E402
+# NOTE: Heavy imports (HF models, API clients) are intentionally deferred so that
+# `python scripts/evaluate_ttp_eval.py --help` is fast and does not require model downloads.
+TTPEvalLoader: Any = None
+TTPEvalSample: Any = None
+calculate_metrics: Any = None
+PerspectiveAPI: Any = None
+LlamaGuard: Any = None
+TransformersTTPClient: Any = None
+OpenRouterTTPClient: Any = None
+OpenAITTPClient: Any = None
+GeminiTTPEvaluator: Any = None
+HarmFormer: Any = None
+maybe_track_emissions: Any = None
+HarmLabel: Any = None
+gather_run_metadata: Any = None
+
+
+def _lazy_imports() -> None:
+    """Import only the shared, dependency-light pieces.
+
+    Optional API clients (OpenAI/Gemini/OpenRouter/Perspective) are imported only
+    if the user selects those setups.
+    """
+
+    global TTPEvalLoader, TTPEvalSample
+    global calculate_metrics
+    global HarmFormer
+    global maybe_track_emissions
+    global HarmLabel
+    global gather_run_metadata
+
+    if TTPEvalLoader is not None:
+        return
+
+    from src.data_loaders import TTPEvalLoader as _TTPEvalLoader, TTPEvalSample as _TTPEvalSample
+    from src.benchmarks.metrics import calculate_metrics as _calculate_metrics
+    from src.models import HarmFormer as _HarmFormer
+    from src.utils.codecarbon import maybe_track_emissions as _maybe_track_emissions
+    from src.utils.taxonomy import HarmLabel as _HarmLabel
+    from src.utils.repro_metadata import gather_run_metadata as _gather_run_metadata
+
+    TTPEvalLoader = _TTPEvalLoader
+    TTPEvalSample = _TTPEvalSample
+    calculate_metrics = _calculate_metrics
+    HarmFormer = _HarmFormer
+    maybe_track_emissions = _maybe_track_emissions
+    HarmLabel = _HarmLabel
+    gather_run_metadata = _gather_run_metadata
+
+
+def _lazy_imports_for_setups(setups: List[str]) -> None:
+    global PerspectiveAPI, LlamaGuard, TransformersTTPClient, OpenRouterTTPClient
+    global OpenAITTPClient, GeminiTTPEvaluator
+
+    _lazy_imports()
+
+    setups_set = set(setups or [])
+
+    if "perspective" in setups_set and PerspectiveAPI is None:
+        from src.clients.perspective import PerspectiveAPI as _PerspectiveAPI
+
+        PerspectiveAPI = _PerspectiveAPI
+
+    if "llama_guard" in setups_set and LlamaGuard is None:
+        from src.clients.llama_guard import LlamaGuard as _LlamaGuard
+
+        LlamaGuard = _LlamaGuard
+
+    if "local_ttp" in setups_set and TransformersTTPClient is None:
+        from src.clients.ttp_local import TransformersTTPClient as _TransformersTTPClient
+
+        TransformersTTPClient = _TransformersTTPClient
+
+    # These require the OpenAI SDK.
+    if "openai_ttp" in setups_set and OpenAITTPClient is None:
+        from src.clients.ttp_openai import OpenAITTPClient as _OpenAITTPClient
+
+        OpenAITTPClient = _OpenAITTPClient
+
+    if "openrouter_ttp" in setups_set and OpenRouterTTPClient is None:
+        from src.clients.ttp_openrouter import OpenRouterTTPClient as _OpenRouterTTPClient
+
+        OpenRouterTTPClient = _OpenRouterTTPClient
+
+    # Requires Gemini SDK / google-genai.
+    if "gemini_ttp" in setups_set and GeminiTTPEvaluator is None:
+        from src.clients.ttp_gemini import GeminiTTPEvaluator as _GeminiTTPEvaluator
+
+        GeminiTTPEvaluator = _GeminiTTPEvaluator
 
 
 def _toxic_label() -> HarmLabel:
     """Conservative fallback label for sensitivity analysis (invalid => toxic)."""
+    _lazy_imports()
     from src.utils.taxonomy import Dimension  # local import to keep startup cheap
 
     return HarmLabel(
@@ -61,6 +142,7 @@ def _evaluate_setup(
     *,
     invalid_policy: str,
 ) -> Dict[str, Any]:
+    _lazy_imports()
     preds: List[HarmLabel] = []
     gts: List[HarmLabel] = []
     failed = 0
@@ -169,6 +251,8 @@ def main() -> int:
     p.add_argument("--quantization", default="none", choices=["none", "8bit", "4bit"])
 
     args = p.parse_args()
+
+    _lazy_imports_for_setups(args.setups)
 
     loader = TTPEvalLoader(args.data_path)
     samples = loader.load()

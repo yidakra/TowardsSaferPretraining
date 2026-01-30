@@ -15,21 +15,69 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.data_loaders import OpenAIModerationLoader, OpenAIModerationSample  # noqa: E402
-from src.benchmarks.metrics import calculate_metrics  # noqa: E402
-from src.clients import PerspectiveAPI, LlamaGuard, OpenRouterTTPClient  # noqa: E402
-from src.clients.ttp_openai import OpenAITTPClient  # noqa: E402
-from src.models import HarmFormer  # noqa: E402
-from src.utils.codecarbon import maybe_track_emissions  # noqa: E402
-from src.utils.taxonomy import HarmLabel, Dimension  # noqa: E402
-from src.utils.repro_metadata import gather_run_metadata  # noqa: E402
+
+# NOTE: Heavy imports are deferred so `--help` is fast and does not require
+# optional API dependencies or model downloads.
+OpenAIModerationLoader: Any = None
+OpenAIModerationSample: Any = None
+calculate_metrics: Any = None
+PerspectiveAPI: Any = None
+LlamaGuard: Any = None
+OpenAITTPClient: Any = None
+OpenRouterTTPClient: Any = None
+HarmFormer: Any = None
+maybe_track_emissions: Any = None
+HarmLabel: Any = None
+Dimension: Any = None
+gather_run_metadata: Any = None
 
 
-def _truth_to_label(s: OpenAIModerationSample) -> HarmLabel:
+def _lazy_imports() -> None:
+    global OpenAIModerationLoader
+    global OpenAIModerationSample
+    global calculate_metrics
+    global PerspectiveAPI, LlamaGuard, OpenAITTPClient, OpenRouterTTPClient
+    global HarmFormer
+    global maybe_track_emissions
+    global HarmLabel, Dimension
+    global gather_run_metadata
+
+    if OpenAIModerationLoader is not None:
+        return
+
+    from src.data_loaders import OpenAIModerationLoader as _Loader, OpenAIModerationSample as _Sample
+    from src.benchmarks.metrics import calculate_metrics as _calculate_metrics
+    from src.clients import (  # heavy/optional deps live behind these imports
+        PerspectiveAPI as _PerspectiveAPI,
+        LlamaGuard as _LlamaGuard,
+        OpenAITTPClient as _OpenAITTPClient,
+        OpenRouterTTPClient as _OpenRouterTTPClient,
+    )
+    from src.models import HarmFormer as _HarmFormer
+    from src.utils.codecarbon import maybe_track_emissions as _maybe_track_emissions
+    from src.utils.taxonomy import HarmLabel as _HarmLabel, Dimension as _Dimension
+    from src.utils.repro_metadata import gather_run_metadata as _gather_run_metadata
+
+    OpenAIModerationLoader = _Loader
+    OpenAIModerationSample = _Sample
+    calculate_metrics = _calculate_metrics
+    PerspectiveAPI = _PerspectiveAPI
+    LlamaGuard = _LlamaGuard
+    OpenAITTPClient = _OpenAITTPClient
+    OpenRouterTTPClient = _OpenRouterTTPClient
+    HarmFormer = _HarmFormer
+    maybe_track_emissions = _maybe_track_emissions
+    HarmLabel = _HarmLabel
+    Dimension = _Dimension
+    gather_run_metadata = _gather_run_metadata
+
+
+def _truth_to_label(s) -> Any:
+    _lazy_imports()
     if not s.is_toxic:
         return HarmLabel()
     return HarmLabel(
@@ -41,17 +89,19 @@ def _truth_to_label(s: OpenAIModerationSample) -> HarmLabel:
     )
 
 
-def _toxic_label() -> HarmLabel:
+def _toxic_label() -> Any:
+    _lazy_imports()
     return _truth_to_label(OpenAIModerationSample(text="", is_toxic=True))
 
 
 def _evaluate_binary(
     name: str,
     classifier,
-    samples: List[OpenAIModerationSample],
+    samples: List[Any],
     *,
     invalid_policy: str,
 ) -> Dict[str, Any]:
+    _lazy_imports()
     preds: List[HarmLabel] = []
     gts: List[HarmLabel] = []
     failed = 0
@@ -150,6 +200,8 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+
+    _lazy_imports()
 
     loader = OpenAIModerationLoader(args.data_path)
     samples = loader.load(limit=args.limit)

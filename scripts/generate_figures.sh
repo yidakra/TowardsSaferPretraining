@@ -19,7 +19,7 @@ echo "[figures] HAVOC topical counts (from data/HAVOC/havoc.tsv)"
 $PY scripts/plot_havoc_topical_counts.py
 
 echo "[figures] HAVOC vs RTP compare (requires results/havoc/*_results.json + one RTP JSON)"
-if compgen -G "results/havoc/*_results.json" >/dev/null && [ -f "results/rtp/meta-llama_Llama-3_2-3B_results.json" ]; then
+if compgen -G "results/havoc/*_results.json" >/dev/null && [ -f "results/rtp/rtp_continuations_harmformer.json" ]; then
   $PY scripts/plot_havoc_rtp_compare.py
 else
   echo "  - Skipping havoc-rtp-compare.png (missing inputs under results/)." >&2
@@ -30,11 +30,6 @@ if compgen -G "results/ttp_eval_multilingual/harmformer_*.json" >/dev/null && co
   $PY scripts/plot_multilingual_f1.py
 else
   echo "  - Skipping multilingual-f1.png (missing multilingual result JSONs under results/)." >&2
-fi
-
-# Optional appendix figure
-if [ -f "results/rtp/havoc_rtp_harms.json" ]; then
-  $PY scripts/plot_rtp_havoc_harms_radar.py || true
 fi
 
 echo "Generated figures:"

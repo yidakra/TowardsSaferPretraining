@@ -5,7 +5,7 @@ Outputs:
 
 Data sources:
   - HAVOC: averages over all JSON files in results/havoc/*_results.json
-  - RTP: reads one RTP results JSON (default: results/rtp/meta-llama_Llama-3_2-3B_results.json)
+    - RTP: reads one RTP results JSON (default: results/rtp/rtp_continuations_harmformer.json)
 
 This is designed to keep the paper figure consistent with the updated HAVOC all-6
 aggregation (Claim 4 reproducibility fix).
@@ -86,8 +86,8 @@ def main() -> None:
     parser.add_argument("--havoc-results-dir", default="results/havoc")
     parser.add_argument(
         "--rtp-results-json",
-        default="results/rtp/meta-llama_Llama-3_2-3B_results.json",
-        help="Which RTP run to compare against (default: Llama 3.2 3B cached JSON)",
+        default="results/rtp/rtp_continuations_harmformer.json",
+        help="Which RTP run to compare against (default: locally generated HarmFormer-on-RTP JSON)",
     )
     parser.add_argument("--out", default="havoc-rtp-compare.png")
     args = parser.parse_args()

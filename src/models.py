@@ -86,7 +86,15 @@ class HarmFormer:
         try:
             import torch  # type: ignore
             import torch.nn as nn  # type: ignore
-            from transformers import AutoModel, AutoTokenizer  # type: ignore
+            from transformers import AutoTokenizer  # type: ignore
+            try:
+                # Import the base encoder directly to avoid pulling in transformers'
+                # generation stack (which can drag in heavy optional deps).
+                from transformers.models.longformer.modeling_longformer import (  # type: ignore
+                    LongformerModel,
+                )
+            except Exception:  # pragma: no cover - fallback for older transformers
+                from transformers import LongformerModel  # type: ignore
             from huggingface_hub import hf_hub_download  # type: ignore
         except ImportError as e:
             raise RuntimeError(
@@ -119,7 +127,9 @@ class HarmFormer:
 
         logger.info(f"Loading HarmFormer from {model_name} on {self.device}...")
         # Load base encoder and build heads matching the released checkpoint.
-        base_model = AutoModel.from_pretrained(self._cfg.base_model_name)
+        # Explicitly disable safetensors auto-conversion (which can trigger network calls
+        # and noisy background-thread timeouts on some HPC networks).
+        base_model = LongformerModel.from_pretrained(self._cfg.base_model_name, use_safetensors=False)
         hidden_size = int(getattr(base_model.config, "hidden_size"))
         classifiers = nn.ModuleList(
             [
