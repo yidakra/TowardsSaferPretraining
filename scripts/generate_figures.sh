@@ -7,6 +7,14 @@ set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$REPO_ROOT"
 
+# Load optional repo-local environment (tokens, API keys, etc.).
+if [ -f ".env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ".env"
+  set +a
+fi
+
 PY=${PYTHON:-"$REPO_ROOT/venv/bin/python"}
 
 if [ ! -x "$PY" ]; then
@@ -19,7 +27,12 @@ echo "[figures] HAVOC topical counts (from data/HAVOC/havoc.tsv)"
 $PY scripts/plot_havoc_topical_counts.py
 
 echo "[figures] HAVOC vs RTP compare (requires results/havoc/*_results.json + one RTP JSON)"
-if compgen -G "results/havoc/*_results.json" >/dev/null && [ -f "results/rtp/rtp_continuations_harmformer.json" ]; then
+if compgen -G "results/havoc/*_results.json" >/dev/null && (
+  [ -f "results/rtp/rtp_continuations_harmformer_full.json" ] ||
+  [ -f "results/rtp/google_gemma-2-9b_results.json" ] ||
+  [ -f "results/rtp/meta-llama_Llama-3_2-3B_results.json" ] ||
+  [ -f "results/rtp/mistralai_Mistral-7B-v0_3_results.json" ]
+); then
   $PY scripts/plot_havoc_rtp_compare.py
 else
   echo "  - Skipping havoc-rtp-compare.png (missing inputs under results/)." >&2

@@ -20,7 +20,10 @@ module load CUDA/12.1.1
 PROJECT_DIR="${PROJECT_DIR:-${1:-$HOME/TowardsSaferPretraining}}"
 cd "$PROJECT_DIR"
 
+
 source venv/bin/activate
+# Load environment variables from .env file (absolute path for Slurm)
+set -a; source "$HOME/TowardsSaferPretraining/.env" 2>/dev/null || true; set +a
 
 # Optional CodeCarbon tracking
 mkdir -p results/codecarbon

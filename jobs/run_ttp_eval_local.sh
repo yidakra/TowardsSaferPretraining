@@ -30,10 +30,13 @@ module load CUDA/12.1.1 || {
 # Reduce fragmentation risk for large-model inference
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
+# Set project directory.
+PROJECT_DIR="${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$HOME/TowardsSaferPretraining}}"
+
 # Change to project directory
-cd "$HOME/TowardsSaferPretraining" || {
-    echo "Error: Failed to change to project directory" >&2
-    exit 1
+cd "$PROJECT_DIR" || {
+  echo "Error: Failed to change to project directory: $PROJECT_DIR" >&2
+  exit 1
 }
 
 # Activate virtual environment with error checking
@@ -42,11 +45,11 @@ source venv/bin/activate || {
     exit 1
 }
 
-# Load env keys if present
-if [ -f ".env" ]; then
+# Load env keys from absolute path if present
+if [ -f "$HOME/TowardsSaferPretraining/.env" ]; then
   set -a
   # shellcheck disable=SC1091
-  source ".env"
+  source "$HOME/TowardsSaferPretraining/.env"
   set +a
 fi
 
@@ -55,7 +58,7 @@ mkdir -p results/ttp_eval_baselines
 mkdir -p results/codecarbon
 
 # Optional CodeCarbon tracking
-export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$HOME/TowardsSaferPretraining/results/codecarbon}"
+export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
 export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
 # Model configuration (can be overridden via environment)

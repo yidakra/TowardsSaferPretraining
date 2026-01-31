@@ -28,8 +28,12 @@ METRICS = [
     ("neutral", "Neutral"),
     ("passive", "Passive"),
     ("provocative", "Provocative"),
-    ("overall", "Overall"),
+    ("overall", "Aggregated"),
 ]
+
+
+PAPER_ALL6_KEYS = ["gemma_2b", "gemma_9b", "gemma_27b", "llama_1b", "llama_3b", "mistral_7b"]
+PAPER_MEDIUM3_KEYS = ["gemma_9b", "llama_3b", "mistral_7b"]
 
 
 def _read_json(path: Path) -> Dict[str, Any]:
@@ -52,7 +56,18 @@ def _mean(values: List[float]) -> float:
 
 
 def load_havoc_means(results_dir: Path) -> Dict[str, float]:
-    files = sorted(results_dir.glob("*_results.json"))
+    # Prefer the paper-faithful aggregation set when present.
+    all6 = [results_dir / f"{k}_results.json" for k in PAPER_ALL6_KEYS]
+    medium3 = [results_dir / f"{k}_results.json" for k in PAPER_MEDIUM3_KEYS]
+
+    if all(p.exists() for p in all6):
+        files = all6
+    elif all(p.exists() for p in medium3):
+        files = medium3
+    else:
+        # Fallback: any *_results.json, but ignore scratch/smoke artifacts.
+        files = [p for p in sorted(results_dir.glob("*_results.json")) if not p.name.startswith("_")]
+
     if not files:
         raise FileNotFoundError(f"No HAVOC result files found in {results_dir}")
 
@@ -81,19 +96,36 @@ def load_rtp_metrics(rtp_json: Path) -> Dict[str, float]:
     return out
 
 
+def _format_pct(v: float) -> str:
+    return f"{v:.1f}%"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--havoc-results-dir", default="results/havoc")
     parser.add_argument(
         "--rtp-results-json",
-        default="results/rtp/rtp_continuations_harmformer.json",
+        default="results/rtp/rtp_continuations_harmformer_full.json",
         help="Which RTP run to compare against (default: locally generated HarmFormer-on-RTP JSON)",
     )
     parser.add_argument("--out", default="havoc-rtp-compare.png")
     args = parser.parse_args()
 
+    rtp_path = Path(args.rtp_results_json)
+    if not rtp_path.exists() and args.rtp_results_json == "results/rtp/rtp_continuations_harmformer_full.json":
+        # Best-effort fallback for repos that ship a precomputed RTP JSON under a different name.
+        candidates = [
+            Path("results/rtp/google_gemma-2-9b_results.json"),
+            Path("results/rtp/meta-llama_Llama-3_2-3B_results.json"),
+            Path("results/rtp/mistralai_Mistral-7B-v0_3_results.json"),
+        ]
+        for c in candidates:
+            if c.exists():
+                rtp_path = c
+                break
+
     havoc_means = load_havoc_means(Path(args.havoc_results_dir))
-    rtp_vals = load_rtp_metrics(Path(args.rtp_results_json))
+    rtp_vals = load_rtp_metrics(rtp_path)
 
     labels = [lab for _k, lab in METRICS]
     havoc = [havoc_means[k] for k, _lab in METRICS]
@@ -103,13 +135,37 @@ def main() -> None:
     width = 0.38
 
     fig, ax = plt.subplots(figsize=(7.2, 4.2))
-    ax.bar([i - width / 2 for i in x], havoc, width=width, label=f"HAVOC (mean of {int(havoc_means['_n_models'])} models)", color="#4C78A8")
-    ax.bar([i + width / 2 for i in x], rtp, width=width, label="RTP (one run)", color="#F58518")
+    ax.bar(
+        [i - width / 2 for i in x],
+        havoc,
+        width=width,
+        label="HAVOC",
+        color="#4C78A8",
+    )
+    ax.bar(
+        [i + width / 2 for i in x],
+        rtp,
+        width=width,
+        label="RTP",
+        color="#F58518",
+        hatch="///",
+        edgecolor="#F58518",
+        linewidth=0.8,
+    )
 
     ax.set_xticks(x, labels)
     ax.set_ylabel("Leakage (%)")
     ax.set_ylim(0, max(max(havoc), max(rtp)) * 1.25)
     ax.set_title("Leakage rates: HAVOC vs RealToxicityPrompts")
+
+    # Average lines (paper-style) using the Aggregated/overall bucket.
+    havoc_avg = float(havoc_means.get("overall", float("nan")))
+    rtp_avg = float(rtp_vals.get("overall", float("nan")))
+    if havoc_avg == havoc_avg:  # not NaN
+        ax.axhline(havoc_avg, color="#4C78A8", linestyle="--", linewidth=1.2, label=f"HAVOC avg = {_format_pct(havoc_avg)}")
+    if rtp_avg == rtp_avg:  # not NaN
+        ax.axhline(rtp_avg, color="#F58518", linestyle="--", linewidth=1.2, label=f"RTP avg = {_format_pct(rtp_avg)}")
+
     ax.legend(frameon=False)
 
     # Annotate

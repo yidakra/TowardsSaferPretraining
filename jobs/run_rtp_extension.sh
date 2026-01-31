@@ -20,7 +20,10 @@ module load CUDA/12.1.1
 PROJECT_DIR="${PROJECT_DIR:-${1:-$HOME/TowardsSaferPretraining}}"
 cd "$PROJECT_DIR"
 
+
 source venv/bin/activate
+# Load environment variables from .env file (absolute path for Slurm)
+set -a; source "$HOME/TowardsSaferPretraining/.env" 2>/dev/null || true; set +a
 
 # Optional CodeCarbon tracking
 mkdir -p results/codecarbon
@@ -32,10 +35,13 @@ LIMIT="${LIMIT:-}"
 CMD=(python scripts/evaluate_rtp_continuations.py \
   --device cuda \
   --batch-size 32 \
-  --output results/rtp/rtp_continuations_harmformer.json)
+  --output results/rtp/rtp_continuations_harmformer_full.json)
 
 if [[ -n "$LIMIT" ]]; then
   CMD+=(--limit "$LIMIT")
 fi
 
 "${CMD[@]}"
+
+# Backwards-compatible filename (some older docs/scripts used this name).
+cp -f results/rtp/rtp_continuations_harmformer_full.json results/rtp/rtp_continuations_harmformer.json

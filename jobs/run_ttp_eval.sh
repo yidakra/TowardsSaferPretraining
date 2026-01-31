@@ -41,16 +41,16 @@ source venv/bin/activate || {
     exit 1
 }
 
-# Load API keys from .env if present, otherwise from example.env.
-if [ -f ".env" ]; then
+# Load API keys from .env (absolute path for Slurm jobs)
+if [ -f "$HOME/TowardsSaferPretraining/.env" ]; then
   set -a
   # shellcheck disable=SC1091
-  source ".env"
+  source "$HOME/TowardsSaferPretraining/.env"
   set +a
-elif [ -f "example.env" ]; then
+elif [ -f "$HOME/TowardsSaferPretraining/example.env" ]; then
   set -a
   # shellcheck disable=SC1091
-  source "example.env"
+  source "$HOME/TowardsSaferPretraining/example.env"
   set +a
 fi
 
@@ -63,16 +63,17 @@ export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/code
 export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
 # Ensure required keys exist
-if [ -z "${OPENAI_API_KEY:-}" ]; then
-  echo "Error: OPENAI_API_KEY is required for openai_ttp setup" >&2
+if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+  echo "Error: OPENROUTER_API_KEY is required for openrouter_ttp setup" >&2
   exit 1
 fi
 
 # Run TTP evaluation on full TTP-Eval dataset (Table 3)
 if python scripts/evaluate_ttp_eval.py \
   --data-path data/TTP-Eval/TTPEval.tsv \
-  --setups openai_ttp \
-  --openai-model gpt-4o \
+  --setups openrouter_ttp \
+  --openrouter-key "$OPENROUTER_API_KEY" \
+  --openrouter-model "${OPENROUTER_MODEL:-openai/gpt-4o}" \
   --dimension toxic \
   --output results/ttp_eval/ttp_results.json; then
     echo "TTP Evaluation Complete!"

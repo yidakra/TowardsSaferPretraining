@@ -5,6 +5,41 @@ import json
 from pathlib import Path
 from tabulate import tabulate  # type: ignore
 
+
+def _get_int(x):
+    return x if isinstance(x, int) else None
+
+
+def is_effectively_missing_client_stats(entry: dict) -> bool:
+    """Detect runs that produced metrics but made no successful requests (e.g., 402/blocked keys).
+
+    Some evaluators still emit 0.0 metrics even when every request failed.
+    """
+    stats = entry.get("client_stats") or {}
+    if not isinstance(stats, dict):
+        return False
+    total_requests = _get_int(stats.get("total_requests"))
+    failed_requests = _get_int(stats.get("failed_requests"))
+    if total_requests == 0 and (failed_requests or 0) > 0:
+        return True
+    return False
+
+
+def pick_best_entry(entries: list[dict]) -> dict:
+    """Pick the best candidate among duplicate classifier/setup rows.
+
+    Heuristic: prefer more successful requests; then fewer failed requests.
+    """
+    def score(e: dict):
+        stats = e.get("client_stats") or {}
+        total_requests = _get_int(stats.get("total_requests")) or 0
+        failed_requests = _get_int(stats.get("failed_requests"))
+        if failed_requests is None:
+            failed_requests = 0
+        return (total_requests, -failed_requests)
+
+    return sorted(entries, key=score, reverse=True)[0] if entries else {}
+
 def load_json(path):
     try:
         with open(path) as f:
@@ -96,24 +131,39 @@ print("\nTable 4: Baselines on TTP-Eval (Toxic Dimension; Perspective omitted)")
 try:
     rows = []
     row_index = {}
+    row_priority = {}
 
-    def upsert_row(setup, precision, recall, f1):
+    def upsert_row(setup, precision, recall, f1, *, priority=0):
         key = (setup or "Unknown").lower()
         row = [setup or "Unknown", precision, recall, f1]
+        if key in row_index and row_priority.get(key, -10**9) >= priority:
+            return
         if key in row_index:
             rows[row_index[key]] = row
         else:
             row_index[key] = len(rows)
             rows.append(row)
+        row_priority[key] = priority
 
-    # TTP (from Table 3 output; legacy schema)
-    try:
-        ttp_payload = load_json("results/ttp_eval/ttp_results.json")
-        overall = (ttp_payload.get("metrics") or {}).get("overall", {})
-        if overall:
-            upsert_row("TTP (gpt-4o)", overall.get("precision", "N/A"), overall.get("recall", "N/A"), overall.get("f1", "N/A"))
-    except RuntimeError:
-        pass
+    # TTP baseline from the main TTP-Eval output (supports unified evaluator schema).
+    for p in ["results/ttp_eval/results.json", "results/ttp_eval/ttp_results.json"]:
+        try:
+            ttp_payload = load_json(p)
+        except RuntimeError:
+            continue
+        for r in ttp_payload.get("results", []):
+            if not isinstance(r, dict):
+                continue
+            setup = (r.get("setup") or "")
+            if not setup.lower().startswith("ttp ("):
+                continue
+            m = (r.get("metrics") or {}).get("overall", {})
+            if is_effectively_missing_client_stats(r):
+                upsert_row(setup, "N/A", "N/A", "N/A", priority=100)
+            else:
+                upsert_row(setup, m.get("precision", "N/A"), m.get("recall", "N/A"), m.get("f1", "N/A"), priority=100)
+            break
+        break
 
     # HarmFormer on TTP-Eval (proxy run; also used for Table 6)
     try:
@@ -145,10 +195,12 @@ try:
                 continue
             m = r.get("metrics", {}).get("overall", {})
             evaluated = r.get("evaluated_samples")
-            if isinstance(evaluated, int) and evaluated == 0:
-                upsert_row(r.get("setup", "Unknown"), "N/A", "N/A", "N/A")
+            if is_effectively_missing_client_stats(r):
+                upsert_row(r.get("setup", "Unknown"), "N/A", "N/A", "N/A", priority=10)
+            elif isinstance(evaluated, int) and evaluated == 0:
+                upsert_row(r.get("setup", "Unknown"), "N/A", "N/A", "N/A", priority=10)
             else:
-                upsert_row(r.get("setup", "Unknown"), m.get("precision", "N/A"), m.get("recall", "N/A"), m.get("f1", "N/A"))
+                upsert_row(r.get("setup", "Unknown"), m.get("precision", "N/A"), m.get("recall", "N/A"), m.get("f1", "N/A"), priority=10)
 
     if not rows:
         raise RuntimeError("No Table 4 baseline results found (non-Perspective).")
@@ -206,10 +258,23 @@ try:
         if not combined:
             raise RuntimeError("No results found in results/moderation/table7_*.json")
         mod_results = {"results": combined}
-    rows = []
+    # Deduplicate by classifier label, preferring the best-quality entry.
+    by_classifier: dict[str, list[dict]] = {}
     for r in mod_results.get("results", []):
-        m = r.get("metrics", {}).get("overall", {})
-        rows.append([r.get("classifier", "Unknown"), m.get("precision", "N/A"), m.get("recall", "N/A"), m.get("f1", "N/A")])
+        if not isinstance(r, dict):
+            continue
+        label = (r.get("classifier") or "Unknown").strip()
+        by_classifier.setdefault(label.lower(), []).append(r)
+
+    rows = []
+    for key in sorted(by_classifier.keys()):
+        r = pick_best_entry(by_classifier[key])
+        label = (r.get("classifier") or "Unknown").strip()
+        m = (r.get("metrics") or {}).get("overall", {})
+        if is_effectively_missing_client_stats(r):
+            rows.append([label, "N/A", "N/A", "N/A"])
+        else:
+            rows.append([label, m.get("precision", "N/A"), m.get("recall", "N/A"), m.get("f1", "N/A")])
     if not rows:
         raise RuntimeError("No results found in results/moderation/table7_*.json")
     print(tabulate(rows, headers=["Setup", "Precision", "Recall", "F1"], tablefmt="grid"))

@@ -9,7 +9,10 @@ Inputs:
 
 Optional English reference bars:
   - HarmFormer: read from results/harmformer/harmformer_results.json (TTP-Eval)
-  - Llama Guard: pass --llama-guard-en-f1 if you have the English run available
+    - Llama Guard: best-effort, from one of:
+            * --llama-guard-en-f1
+            * --llama-guard-en-json (English TTP-Eval run)
+            * --llama-guard-en-table7-json (Table 7 OpenAI Moderation results)
 
 This script is intentionally lightweight and does not re-run model inference.
 """
@@ -86,15 +89,57 @@ def load_multilingual_dir(results_dir: Path, prefix: str) -> Dict[str, float]:
     return out
 
 
+def _extract_table7_llama_guard_f1(payload: Dict[str, Any]) -> Optional[float]:
+    # Table 7 schema: {"results": [{"classifier": "Llama Guard", "metrics": {"overall": {"f1": ...}}}, ...]}
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return None
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        if item.get("classifier") != "Llama Guard":
+            continue
+        metrics = item.get("metrics")
+        if not isinstance(metrics, dict):
+            return None
+        overall = metrics.get("overall")
+        if not isinstance(overall, dict):
+            return None
+        if "f1" not in overall:
+            return None
+        try:
+            return float(overall["f1"])
+        except Exception:
+            return None
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--multilingual-results-dir", default="results/ttp_eval_multilingual")
     parser.add_argument("--harmformer-en-json", default="results/harmformer/harmformer_results.json")
     parser.add_argument(
+        "--llama-guard-en-json",
+        default="results/ttp_eval_baselines/llama_guard_en.json",
+        help=(
+            "Optional JSON file containing an English Llama Guard run on TTP-Eval. "
+            "If present and --llama-guard-en-f1 is not provided, we will extract overall.f1 from it."
+        ),
+    )
+    parser.add_argument(
         "--llama-guard-en-f1",
         type=float,
         default=None,
         help="Optional English F1 for Llama Guard on (English) TTP-Eval.",
+    )
+    parser.add_argument(
+        "--llama-guard-en-table7-json",
+        default="results/moderation/table7_local_results.json",
+        help=(
+            "Optional Table 7 (OpenAI Moderation) JSON file. If provided and the English Llama Guard "
+            "TTP-Eval JSON is missing, we will use the 'Llama Guard' overall.f1 from this file as the "
+            "English reference bar."
+        ),
     )
     parser.add_argument("--out", default="multilingual-f1.png")
     args = parser.parse_args()
@@ -109,6 +154,23 @@ def main() -> None:
     if harmformer_en_path.exists():
         harmformer_en = _extract_overall_f1(_read_json(harmformer_en_path))
 
+    llama_guard_en: Optional[float] = args.llama_guard_en_f1
+    if llama_guard_en is None:
+        llama_guard_en_path = Path(args.llama_guard_en_json)
+        if llama_guard_en_path.exists():
+            try:
+                llama_guard_en = _extract_overall_f1(_read_json(llama_guard_en_path))
+            except Exception:
+                llama_guard_en = None
+
+    if llama_guard_en is None:
+        table7_path = Path(args.llama_guard_en_table7_json)
+        if table7_path.exists():
+            try:
+                llama_guard_en = _extract_table7_llama_guard_f1(_read_json(table7_path))
+            except Exception:
+                llama_guard_en = None
+
     # Build aligned series
     harmformer_series: List[Optional[float]] = []
     llama_guard_series: List[Optional[float]] = []
@@ -116,7 +178,7 @@ def main() -> None:
     for lang in LANG_ORDER:
         if lang == "English":
             harmformer_series.append(harmformer_en)
-            llama_guard_series.append(args.llama_guard_en_f1)
+            llama_guard_series.append(llama_guard_en)
         else:
             harmformer_series.append(harmformer_map.get(lang))
             llama_guard_series.append(llama_guard_map.get(lang))
@@ -149,8 +211,8 @@ def main() -> None:
     note_bits: List[str] = []
     if harmformer_en is None:
         note_bits.append("HarmFormer English: missing")
-    if args.llama_guard_en_f1 is None:
-        note_bits.append("Llama Guard English: not provided")
+    if llama_guard_en is None:
+        note_bits.append("Llama Guard English: missing")
     if note_bits:
         ax.text(0.99, 0.02, "; ".join(note_bits), transform=ax.transAxes, ha="right", va="bottom", fontsize=9, alpha=0.8)
 
