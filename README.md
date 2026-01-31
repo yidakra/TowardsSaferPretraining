@@ -29,15 +29,11 @@ TowardsSaferPretraining/
 
 ## Getting Started
 
-1. Clone the repository:
-    ```bash
-    git clone https://github.com/themendu/TowardsSaferPretraining.git
-    cd TowardsSaferPretraining
-    ```
+1. Clone the repository.
 2. Review the `data/README.md` for dataset details and usage instructions.
 3. Use the prompts folder in case you need to evaluate TTP. The prompts are styled in OpenAI ChatML format.
 4. To access HarmFormer’s predictions on the entire C4 dataset, please visit [this link](https://huggingface.co/datasets/themendu/SafeC4).
-5. We release HarmFormer [here in HuggingFace](https://huggingface.co/themendu/HarmFormer)
+5. To access HarmFormer, visit [this link](https://huggingface.co/themendu/HarmFormer)
 
 ## Reproducing paper results
 
