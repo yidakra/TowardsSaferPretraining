@@ -55,8 +55,8 @@ Required environment variables in `.env`:
 Optional experiment tracking variables:
 - `WANDB_ENABLED=1` to enable Weights & Biases logging in all patched job scripts
 - `WANDB_API_KEY` for authentication
-- `WANDB_PROJECT` (default: `TowardsSaferPretraining`)
-- `WANDB_ENTITY` (optional; unset by default unless provided via the environment)
+- `WANDB_PROJECT` (default: `fact`)
+- `WANDB_ENTITY` (default: `foundationmodels`)
 - `WANDB_GROUP`, `WANDB_MODE` (optional)
 
 Note: OpenRouter calls require an account with sufficient credits. If you cannot fund OpenRouter,

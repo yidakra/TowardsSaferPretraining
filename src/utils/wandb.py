@@ -54,7 +54,7 @@ def add_wandb_args(parser) -> None:
     )
     parser.add_argument(
         "--wandb-project",
-        default=os.environ.get("WANDB_PROJECT", "TowardsSaferPretraining"),
+        default=os.environ.get("WANDB_PROJECT", "fact"),
         help="wandb project name",
     )
     parser.add_argument(
