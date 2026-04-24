@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.models import HarmFormer
+from src.utils.codecarbon import maybe_track_emissions
 from src.utils.repro_metadata import gather_run_metadata
 from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
@@ -133,87 +134,88 @@ def main() -> int:
     add_wandb_args(p)
     args = p.parse_args()
 
-    judge: HarmFormer | None
-    if args.dry_run:
-        judge = None
-    else:
-        judge = HarmFormer(device=args.device, batch_size=args.batch_size)
-
-    totals: Dict[str, int] = {"neutral": 0, "passive": 0, "provocative": 0}
-    leaked_counts: Dict[str, int] = {"neutral": 0, "passive": 0, "provocative": 0}
-    error_count = 0
-    skipped_missing_prompt_toxicity = 0
-    skipped_empty_text = 0
-
-    batch_texts: List[str] = []
-    batch_types: List[str] = []
-    processed = 0
-
-    def flush() -> None:
-        nonlocal processed, error_count
-        if not batch_texts:
-            return
-        if judge is None:
-            # Shouldn't happen (we avoid batching in dry-run), but keep behavior safe.
-            for bucket in batch_types:
-                totals[bucket] += 1
-            processed += len(batch_texts)
-            batch_texts.clear()
-            batch_types.clear()
-            return
-        try:
-            labels = judge.predict_batch(batch_texts, show_progress=False)
-            for bucket, lab in zip(batch_types, labels, strict=True):
-                totals[bucket] += 1
-                if lab.is_toxic():
-                    leaked_counts[bucket] += 1
-            processed += len(batch_texts)
-        except Exception:
-            error_count += len(batch_texts)
-        finally:
-            batch_texts.clear()
-            batch_types.clear()
-
-    for idx, row in enumerate(_iter_rtp(streaming=args.streaming)):
-        if args.limit is not None and idx >= args.limit:
-            break
-
-        prompt_tox = _get_prompt_toxicity(row)
-        bucket = _bucket(prompt_tox, neutral_max=args.neutral_max, provocative_min=args.provocative_min)
-        if bucket is None:
-            skipped_missing_prompt_toxicity += 1
-            continue
-
-        prompt_text = _get_nested_text(row, "prompt")
-        continuation_text = _get_nested_text(row, "continuation")
-
-        if args.judge_text == "continuation":
-            text = continuation_text.strip()
-        else:
-            text = (prompt_text + " " + continuation_text).strip()
-
-        if args.max_chars is not None:
-            text = text[: args.max_chars]
-
-        if not text:
-            skipped_empty_text += 1
-            continue
-
+    with maybe_track_emissions(run_name="rtp_continuations_harmformer"):
+        judge: HarmFormer | None
         if args.dry_run:
-            totals[bucket] += 1
-            processed += 1
-            continue
+            judge = None
+        else:
+            judge = HarmFormer(device=args.device, batch_size=args.batch_size)
 
-        batch_texts.append(text)
-        batch_types.append(bucket)
+        totals: Dict[str, int] = {"neutral": 0, "passive": 0, "provocative": 0}
+        leaked_counts: Dict[str, int] = {"neutral": 0, "passive": 0, "provocative": 0}
+        error_count = 0
+        skipped_missing_prompt_toxicity = 0
+        skipped_empty_text = 0
 
-        if len(batch_texts) >= args.batch_size:
-            flush()
+        batch_texts: List[str] = []
+        batch_types: List[str] = []
+        processed = 0
 
-        if (idx + 1) % 5000 == 0:
-            print(f"Seen={idx + 1}, judged={processed}, totals={sum(totals.values())}")
+        def flush() -> None:
+            nonlocal processed, error_count
+            if not batch_texts:
+                return
+            if judge is None:
+                # Shouldn't happen (we avoid batching in dry-run), but keep behavior safe.
+                for bucket in batch_types:
+                    totals[bucket] += 1
+                processed += len(batch_texts)
+                batch_texts.clear()
+                batch_types.clear()
+                return
+            try:
+                labels = judge.predict_batch(batch_texts, show_progress=False)
+                for bucket, lab in zip(batch_types, labels, strict=True):
+                    totals[bucket] += 1
+                    if lab.is_toxic():
+                        leaked_counts[bucket] += 1
+                processed += len(batch_texts)
+            except Exception:
+                error_count += len(batch_texts)
+            finally:
+                batch_texts.clear()
+                batch_types.clear()
 
-    flush()
+        for idx, row in enumerate(_iter_rtp(streaming=args.streaming)):
+            if args.limit is not None and idx >= args.limit:
+                break
+
+            prompt_tox = _get_prompt_toxicity(row)
+            bucket = _bucket(prompt_tox, neutral_max=args.neutral_max, provocative_min=args.provocative_min)
+            if bucket is None:
+                skipped_missing_prompt_toxicity += 1
+                continue
+
+            prompt_text = _get_nested_text(row, "prompt")
+            continuation_text = _get_nested_text(row, "continuation")
+
+            if args.judge_text == "continuation":
+                text = continuation_text.strip()
+            else:
+                text = (prompt_text + " " + continuation_text).strip()
+
+            if args.max_chars is not None:
+                text = text[: args.max_chars]
+
+            if not text:
+                skipped_empty_text += 1
+                continue
+
+            if args.dry_run:
+                totals[bucket] += 1
+                processed += 1
+                continue
+
+            batch_texts.append(text)
+            batch_types.append(bucket)
+
+            if len(batch_texts) >= args.batch_size:
+                flush()
+
+            if (idx + 1) % 5000 == 0:
+                print(f"Seen={idx + 1}, judged={processed}, totals={sum(totals.values())}")
+
+        flush()
 
     total_samples = sum(totals.values())
     overall_leaked = sum(leaked_counts.values())

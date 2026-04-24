@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.utils.codecarbon import maybe_track_emissions
 from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 # NOTE: Heavy imports are deferred so `--help` is fast and does not require model downloads.
@@ -256,14 +257,15 @@ def main() -> int:
     if not texts:
         raise SystemExit("No samples loaded (check --input-format/--text-field and input file contents).")
 
-    clf = _make_classifier(args)
+    with maybe_track_emissions(run_name=f"toxicity_prevalence_{args.setup}"):
+        clf = _make_classifier(args)
 
-    # Prefer batch prediction when supported.
-    labels: List[HarmLabel]
-    if hasattr(clf, "predict_batch") and callable(getattr(clf, "predict_batch")):
-        labels = clf.predict_batch(texts, show_progress=True)
-    else:
-        labels = [clf.predict(t) for t in texts]
+        # Prefer batch prediction when supported.
+        labels: List[HarmLabel]
+        if hasattr(clf, "predict_batch") and callable(getattr(clf, "predict_batch")):
+            labels = clf.predict_batch(texts, show_progress=True)
+        else:
+            labels = [clf.predict(t) for t in texts]
 
     counts = _Counts()
     for lab in labels:

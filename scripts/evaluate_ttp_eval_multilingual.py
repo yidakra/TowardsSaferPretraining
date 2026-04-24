@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.utils.codecarbon import maybe_track_emissions
 from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 
@@ -77,39 +78,40 @@ def main() -> int:
 
     collected_results: Dict[str, Dict[str, Any]] = {}
 
-    for lang in args.langs:
-        tsv_path = translated_dir / f"TTPEval_{lang}.tsv"
-        if not tsv_path.exists():
-            raise FileNotFoundError(f"Missing translated TSV: {tsv_path}")
+    with maybe_track_emissions(run_name="ttp_eval_multilingual"):
+        for lang in args.langs:
+            tsv_path = translated_dir / f"TTPEval_{lang}.tsv"
+            if not tsv_path.exists():
+                raise FileNotFoundError(f"Missing translated TSV: {tsv_path}")
 
-        common = [
-            sys.executable,
-            "scripts/evaluate_ttp_eval.py",
-            "--data-path",
-            str(tsv_path),
-            "--device",
-            args.device,
-            "--dimension",
-            args.dimension,
-            "--invalid-policy",
-            "exclude",
-        ]
-        if args.limit is not None:
-            common += ["--limit", str(args.limit)]
+            common = [
+                sys.executable,
+                "scripts/evaluate_ttp_eval.py",
+                "--data-path",
+                str(tsv_path),
+                "--device",
+                args.device,
+                "--dimension",
+                args.dimension,
+                "--invalid-policy",
+                "exclude",
+            ]
+            if args.limit is not None:
+                common += ["--limit", str(args.limit)]
 
-        if "harmformer" in args.setups:
-            out_path = out_dir / f"harmformer_{lang}.json"
-            _run(common + ["--setups", "harmformer", "--output", str(out_path)])
-            if out_path.exists():
-                payload = json.loads(out_path.read_text(encoding="utf-8"))
-                collected_results[f"harmformer_{lang}"] = extract_overall_metrics(payload)
+            if "harmformer" in args.setups:
+                out_path = out_dir / f"harmformer_{lang}.json"
+                _run(common + ["--setups", "harmformer", "--output", str(out_path)])
+                if out_path.exists():
+                    payload = json.loads(out_path.read_text(encoding="utf-8"))
+                    collected_results[f"harmformer_{lang}"] = extract_overall_metrics(payload)
 
-        if "llama_guard" in args.setups:
-            out_path = out_dir / f"llama_guard_{lang}.json"
-            _run(common + ["--setups", "llama_guard", "--output", str(out_path)])
-            if out_path.exists():
-                payload = json.loads(out_path.read_text(encoding="utf-8"))
-                collected_results[f"llama_guard_{lang}"] = extract_overall_metrics(payload)
+            if "llama_guard" in args.setups:
+                out_path = out_dir / f"llama_guard_{lang}.json"
+                _run(common + ["--setups", "llama_guard", "--output", str(out_path)])
+                if out_path.exists():
+                    payload = json.loads(out_path.read_text(encoding="utf-8"))
+                    collected_results[f"llama_guard_{lang}"] = extract_overall_metrics(payload)
 
     wandb_run = init_wandb_from_args(
         args,
