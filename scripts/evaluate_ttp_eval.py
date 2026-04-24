@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple, Protocol
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 # NOTE: Heavy imports (HF models, API clients) are intentionally deferred so that
 # `python scripts/evaluate_ttp_eval.py --help` is fast and does not require model downloads.
@@ -249,6 +250,7 @@ def main() -> int:
     p.add_argument("--local-model", action="append", default=[], help="HF model id for local_ttp (repeatable)")
     p.add_argument("--dtype", default="auto", choices=["auto", "float16", "bfloat16"])
     p.add_argument("--quantization", default="none", choices=["none", "8bit", "4bit"])
+    add_wandb_args(p)
 
     args = p.parse_args()
 
@@ -367,6 +369,29 @@ def main() -> int:
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name="evaluate_ttp_eval",
+        job_type="evaluation",
+        config={
+            "data_path": args.data_path,
+            "dimension": args.dimension,
+            "setups": args.setups,
+            "device": args.device,
+            "invalid_policy": args.invalid_policy or "exclude",
+            "lang_filter": args.lang,
+            "include_unknown_lang": args.include_unknown_lang,
+            "local_models": args.local_model,
+            "dtype": args.dtype,
+            "quantization": args.quantization,
+            "openai_model": args.openai_model,
+            "openrouter_model": args.openrouter_model,
+            "gemini_model": args.gemini_model,
+        },
+        extra_tags=["ttp-eval", "reproduction"],
+    )
+
     payload: Dict[str, Any] = {
         "run_metadata": gather_run_metadata(repo_root=str(Path(__file__).parent.parent)),
         "evaluation_config": {
@@ -391,10 +416,19 @@ def main() -> int:
         "results": results,
     }
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    wandb_run.update_summary(extract_overall_metrics(payload))
+    wandb_run.update_summary(
+        {
+            "config/total_samples": len(samples),
+            "config/num_setups": len(setups),
+            "output/path": str(out_path),
+        }
+    )
+    wandb_run.log_json_artifact(out_path, name=f"ttp_eval_{out_path.stem}")
+    wandb_run.finish()
     print(f"Saved: {out_path}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

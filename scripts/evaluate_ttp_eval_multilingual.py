@@ -17,10 +17,14 @@ This repo does not version `results/`.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 
 DEFAULT_LANGS = ["spa_Latn", "fra_Latn", "deu_Latn", "arb_Arab", "hin_Deva", "zho_Hans"]
@@ -64,11 +68,14 @@ def main() -> int:
         choices=["toxic", "topical", "all"],
         help="Which dimension to evaluate",
     )
+    add_wandb_args(p)
     args = p.parse_args()
 
     translated_dir = Path(args.translated_dir)
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    collected_results: Dict[str, Dict[str, Any]] = {}
 
     for lang in args.langs:
         tsv_path = translated_dir / f"TTPEval_{lang}.tsv"
@@ -93,10 +100,39 @@ def main() -> int:
         if "harmformer" in args.setups:
             out_path = out_dir / f"harmformer_{lang}.json"
             _run(common + ["--setups", "harmformer", "--output", str(out_path)])
+            if out_path.exists():
+                payload = json.loads(out_path.read_text(encoding="utf-8"))
+                collected_results[f"harmformer_{lang}"] = extract_overall_metrics(payload)
 
         if "llama_guard" in args.setups:
             out_path = out_dir / f"llama_guard_{lang}.json"
             _run(common + ["--setups", "llama_guard", "--output", str(out_path)])
+            if out_path.exists():
+                payload = json.loads(out_path.read_text(encoding="utf-8"))
+                collected_results[f"llama_guard_{lang}"] = extract_overall_metrics(payload)
+
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name="evaluate_ttp_eval_multilingual",
+        job_type="evaluation",
+        config={
+            "translated_dir": str(translated_dir),
+            "langs": args.langs,
+            "setups": args.setups,
+            "device": args.device,
+            "limit": args.limit,
+            "dimension": args.dimension,
+            "output_dir": str(out_dir),
+        },
+        extra_tags=["multilingual", "ttp-eval", "reproduction"],
+    )
+    for key, metrics in collected_results.items():
+        flat = {f"{key}/{k}": v for k, v in metrics.items()}
+        wandb_run.update_summary(flat)
+    wandb_run.update_summary({"outputs/count": len(collected_results), "output/dir": str(out_dir)})
+    for path in sorted(out_dir.glob("*.json")):
+        wandb_run.log_json_artifact(path, name=f"ttp_eval_multilingual_{path.stem}")
+    wandb_run.finish()
 
     print(f"Done. Wrote results to: {out_dir}")
     return 0

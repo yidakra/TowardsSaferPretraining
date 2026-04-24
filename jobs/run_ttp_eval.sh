@@ -68,6 +68,15 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
   exit 1
 fi
 
+WANDB_ARGS=()
+if [ "${WANDB_ENABLED:-0}" = "1" ]; then
+  WANDB_ARGS+=(--wandb --wandb-project "${WANDB_PROJECT:-TowardsSaferPretraining}")
+  if [ -n "${WANDB_ENTITY:-}" ]; then WANDB_ARGS+=(--wandb-entity "$WANDB_ENTITY"); fi
+  if [ -n "${WANDB_GROUP:-}" ]; then WANDB_ARGS+=(--wandb-group "$WANDB_GROUP"); fi
+  if [ -n "${WANDB_MODE:-}" ]; then WANDB_ARGS+=(--wandb-mode "$WANDB_MODE"); fi
+  WANDB_ARGS+=(--wandb-tags ttp_eval table3 slurm)
+fi
+
 # Run TTP evaluation on full TTP-Eval dataset (Table 3)
 if python scripts/evaluate_ttp_eval.py \
   --data-path data/TTP-Eval/TTPEval.tsv \
@@ -75,7 +84,8 @@ if python scripts/evaluate_ttp_eval.py \
   --openrouter-key "$OPENROUTER_API_KEY" \
   --openrouter-model "${OPENROUTER_MODEL:-openai/gpt-4o}" \
   --dimension toxic \
-  --output results/ttp_eval/ttp_results.json; then
+  --output results/ttp_eval/ttp_results.json \
+  "${WANDB_ARGS[@]}"; then
     echo "TTP Evaluation Complete!"
     echo "Results saved to: results/ttp_eval/ttp_results.json"
 else

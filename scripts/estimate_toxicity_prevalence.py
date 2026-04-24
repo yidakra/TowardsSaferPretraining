@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 # NOTE: Heavy imports are deferred so `--help` is fast and does not require model downloads.
 PerspectiveAPI: Any = None
@@ -234,6 +235,7 @@ def main() -> int:
     p.add_argument("--openrouter-model", default=os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o"))
     p.add_argument("--openrouter-referer", default=os.environ.get("OPENROUTER_REFERER"))
     p.add_argument("--openrouter-title", default=os.environ.get("OPENROUTER_TITLE"))
+    add_wandb_args(p)
 
     args = p.parse_args()
 
@@ -300,10 +302,36 @@ def main() -> int:
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name=f"estimate_toxicity_prevalence_{args.setup}",
+        job_type="evaluation",
+        config={
+            "input_path": str(in_path),
+            "input_format": args.input_format,
+            "text_field": args.text_field,
+            "limit": int(args.limit),
+            "sample_method": args.sample_method,
+            "seed": int(args.seed),
+            "setup": args.setup,
+            "device": args.device,
+            "batch_size": args.batch_size,
+            "openai_model": args.openai_model,
+            "openrouter_model": args.openrouter_model,
+            "perspective_threshold": args.perspective_threshold,
+            "perspective_chunk_chars": args.perspective_chunk_chars,
+        },
+        extra_tags=["prevalence", "reproduction"],
+    )
+    wandb_run.update_summary(extract_overall_metrics(payload))
+    wandb_run.update_summary({"output/path": str(out_path)})
+    wandb_run.log_json_artifact(out_path, name=f"toxicity_prevalence_{out_path.stem}")
+    wandb_run.finish()
+
     print(f"Saved: {out_path}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

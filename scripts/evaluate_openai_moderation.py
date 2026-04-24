@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 
 # NOTE: Heavy imports are deferred so `--help` is fast and does not require
@@ -198,6 +199,7 @@ def main() -> int:
         default=None,
         help="HF model id override (default: meta-llama/Llama-Guard-3-8B)",
     )
+    add_wandb_args(parser)
 
     args = parser.parse_args()
 
@@ -319,10 +321,36 @@ def main() -> int:
         "results": results,
     }
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name="evaluate_openai_moderation",
+        job_type="evaluation",
+        config={
+            "data_path": args.data_path,
+            "baselines": args.baselines,
+            "device": args.device,
+            "invalid_policy": invalid_policy,
+            "openrouter_model": args.openrouter_model,
+            "perspective_threshold": args.perspective_threshold,
+            "limit": args.limit,
+        },
+        extra_tags=["openai-moderation", "reproduction"],
+    )
+    wandb_run.update_summary(extract_overall_metrics(payload))
+    wandb_run.update_summary(
+        {
+            "config/total_samples": len(samples),
+            "config/num_baselines": len(all_baseline_names),
+            "output/path": str(out_path),
+        }
+    )
+    wandb_run.log_json_artifact(out_path, name=f"openai_moderation_{out_path.stem}")
+    wandb_run.finish()
+
     print(f"Saved: {out_path}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

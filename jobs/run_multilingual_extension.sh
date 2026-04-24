@@ -36,6 +36,15 @@ LANGS="${LANGS:-spa_Latn fra_Latn deu_Latn arb_Arab hin_Deva zho_Hans}"
 SETUPS="${SETUPS:-harmformer llama_guard}"
 LIMIT="${LIMIT:-}"
 
+WANDB_ARGS=()
+if [ "${WANDB_ENABLED:-0}" = "1" ]; then
+  WANDB_ARGS+=(--wandb --wandb-project "${WANDB_PROJECT:-TowardsSaferPretraining}")
+  if [ -n "${WANDB_ENTITY:-}" ]; then WANDB_ARGS+=(--wandb-entity "$WANDB_ENTITY"); fi
+  if [ -n "${WANDB_GROUP:-}" ]; then WANDB_ARGS+=(--wandb-group "$WANDB_GROUP"); fi
+  if [ -n "${WANDB_MODE:-}" ]; then WANDB_ARGS+=(--wandb-mode "$WANDB_MODE"); fi
+  WANDB_ARGS+=(--wandb-tags multilingual ttp_eval slurm)
+fi
+
 # If you include `llama_guard` in SETUPS, you need access to the gated model.
 # Export one of: HF_TOKEN / HUGGINGFACE_HUB_TOKEN.
 
@@ -45,7 +54,8 @@ CMD=(python scripts/evaluate_ttp_eval_multilingual.py \
   --setups $SETUPS \
   --device cuda \
   --dimension toxic \
-  --output-dir results/ttp_eval_multilingual)
+  --output-dir results/ttp_eval_multilingual \
+  "${WANDB_ARGS[@]}")
 
 if [[ -n "$LIMIT" ]]; then
   CMD+=(--limit "$LIMIT")

@@ -21,6 +21,7 @@ from src.data_loaders import HAVOCLoader  # noqa: E402
 from src.utils.taxonomy import HarmLabel, Dimension  # noqa: E402
 from src.utils.codecarbon import maybe_track_emissions  # noqa: E402
 from src.utils.repro_metadata import gather_run_metadata  # noqa: E402
+from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics  # noqa: E402
 
 
 def _parse_label_list(label_str: str) -> HarmLabel:
@@ -51,6 +52,7 @@ def main() -> int:
         help="Which model column-set to use from the modeleval TSV",
     )
     parser.add_argument("--output", required=True, help="Output JSON file")
+    add_wandb_args(parser)
     args = parser.parse_args()
 
     loader = HAVOCLoader(args.data_path, modeleval_filepath=args.modeleval_path)
@@ -130,10 +132,25 @@ def main() -> int:
         output_data["run_metadata"] = gather_run_metadata(repo_root=str(Path(__file__).parent.parent))
         json.dump(output_data, f, indent=2)
 
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name=f"evaluate_havoc_modeleval_{args.model_key}",
+        job_type="evaluation",
+        config={
+            "data_path": args.data_path,
+            "modeleval_path": args.modeleval_path,
+            "model_key": args.model_key,
+        },
+        extra_tags=["havoc", "modeleval", "reproduction"],
+    )
+    wandb_run.update_summary(extract_overall_metrics(output_data))
+    wandb_run.update_summary({"output/path": str(out_path)})
+    wandb_run.log_json_artifact(out_path, name=f"havoc_modeleval_{args.model_key}_{out_path.stem}")
+    wandb_run.finish()
+
     print(f"Saved: {out_path}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

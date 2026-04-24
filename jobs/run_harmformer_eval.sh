@@ -53,6 +53,15 @@ mkdir -p results/codecarbon
 export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
 export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
+WANDB_ARGS=()
+if [ "${WANDB_ENABLED:-0}" = "1" ]; then
+  WANDB_ARGS+=(--wandb --wandb-project "${WANDB_PROJECT:-TowardsSaferPretraining}")
+  if [ -n "${WANDB_ENTITY:-}" ]; then WANDB_ARGS+=(--wandb-entity "$WANDB_ENTITY"); fi
+  if [ -n "${WANDB_GROUP:-}" ]; then WANDB_ARGS+=(--wandb-group "$WANDB_GROUP"); fi
+  if [ -n "${WANDB_MODE:-}" ]; then WANDB_ARGS+=(--wandb-mode "$WANDB_MODE"); fi
+  WANDB_ARGS+=(--wandb-tags harmformer table6 slurm)
+fi
+
 # Run HarmFormer evaluation on TTP-Eval (Table 6)
 mkdir -p results/harmformer
 if python scripts/evaluate_ttp_eval.py \
@@ -60,7 +69,8 @@ if python scripts/evaluate_ttp_eval.py \
   --setups harmformer \
   --device cuda \
   --dimension toxic \
-  --output results/harmformer/harmformer_results.json; then
+  --output results/harmformer/harmformer_results.json \
+  "${WANDB_ARGS[@]}"; then
     echo "HarmFormer Evaluation Complete!"
     echo "Results saved to: results/harmformer/harmformer_results.json"
 else

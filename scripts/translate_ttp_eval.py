@@ -15,8 +15,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import sys
 from pathlib import Path
 from typing import Dict, Iterable, List
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.utils.wandb import add_wandb_args, init_wandb_from_args
 
 
 def _read_tsv(path: Path) -> List[Dict[str, str]]:
@@ -72,6 +77,7 @@ def main() -> int:
     p.add_argument("--device", default="cuda", choices=["cuda", "cpu", "mps"])
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--max-new-tokens", type=int, default=256)
+    add_wandb_args(p)
     args = p.parse_args()
 
     # Defer heavy imports so `--help` is fast.
@@ -112,6 +118,8 @@ def main() -> int:
 
     source_texts = [r.get("Body", "") for r in rows]
 
+    generated_files: List[Path] = []
+
     for tgt_lang in args.tgt_langs:
         forced_bos_token_id = tokenizer.convert_tokens_to_ids(tgt_lang)
         if forced_bos_token_id is None:
@@ -143,6 +151,44 @@ def main() -> int:
         out_path = out_dir / f"TTPEval_{tgt_lang}.tsv"
         _write_tsv(out_path, out_rows, fieldnames=fieldnames)
         print(f"Wrote: {out_path}")
+        generated_files.append(out_path)
+
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name="translate_ttp_eval",
+        job_type="preprocessing",
+        config={
+            "input": str(in_path),
+            "model_id": args.model_id,
+            "src_lang": args.src_lang,
+            "tgt_langs": args.tgt_langs,
+            "device": args.device,
+            "batch_size": args.batch_size,
+            "max_new_tokens": args.max_new_tokens,
+            "limit": args.limit,
+            "output_dir": str(out_dir),
+        },
+        extra_tags=["translation", "ttp-eval", "reproduction"],
+    )
+    wandb_run.update_summary(
+        {
+            "translation/rows": len(rows),
+            "translation/num_languages": len(args.tgt_langs),
+            "translation/output_dir": str(out_dir),
+        }
+    )
+    summary_payload = {
+        "generated_files": [str(p) for p in generated_files],
+        "rows": len(rows),
+        "languages": args.tgt_langs,
+    }
+    summary_path = out_dir / "translation_summary.json"
+    summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
+    wandb_run.log_json_artifact(summary_path, name=f"translation_summary_{out_dir.name}")
+    for generated in generated_files:
+        if generated.exists():
+            wandb_run.log_file_artifact(generated, name=f"translated_ttp_eval_{generated.stem}", artifact_type="dataset")
+    wandb_run.finish()
 
     return 0
 

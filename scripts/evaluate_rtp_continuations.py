@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.models import HarmFormer
 from src.utils.repro_metadata import gather_run_metadata
+from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 
 def _get_nested_text(row: Mapping[str, Any], key: str) -> str:
@@ -129,6 +130,7 @@ def main() -> int:
         default="results/rtp/rtp_continuations_harmformer.json",
         help="Output JSON path (results/ is not versioned)",
     )
+    add_wandb_args(p)
     args = p.parse_args()
 
     judge: HarmFormer | None
@@ -253,6 +255,28 @@ def main() -> int:
     }
 
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name="evaluate_rtp_continuations",
+        job_type="evaluation",
+        config={
+            "device": args.device,
+            "batch_size": args.batch_size,
+            "limit": args.limit,
+            "streaming": args.streaming,
+            "judge_text": args.judge_text,
+            "neutral_max": args.neutral_max,
+            "provocative_min": args.provocative_min,
+            "dry_run": bool(args.dry_run),
+        },
+        extra_tags=["rtp", "harmformer", "reproduction"],
+    )
+    wandb_run.update_summary(extract_overall_metrics(payload))
+    wandb_run.update_summary({"output/path": str(out_path)})
+    wandb_run.log_json_artifact(out_path, name=f"rtp_continuations_{out_path.stem}")
+    wandb_run.finish()
+
     print(f"Saved: {out_path}")
     return 0
 

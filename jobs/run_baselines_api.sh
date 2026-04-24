@@ -68,6 +68,15 @@ if [ -z "${PERSPECTIVE_API_KEY:-}" ]; then
   exit 1
 fi
 
+WANDB_ARGS=()
+if [ "${WANDB_ENABLED:-0}" = "1" ]; then
+  WANDB_ARGS+=(--wandb --wandb-project "${WANDB_PROJECT:-TowardsSaferPretraining}")
+  if [ -n "${WANDB_ENTITY:-}" ]; then WANDB_ARGS+=(--wandb-entity "$WANDB_ENTITY"); fi
+  if [ -n "${WANDB_GROUP:-}" ]; then WANDB_ARGS+=(--wandb-group "$WANDB_GROUP"); fi
+  if [ -n "${WANDB_MODE:-}" ]; then WANDB_ARGS+=(--wandb-mode "$WANDB_MODE"); fi
+  WANDB_ARGS+=(--wandb-tags moderation table7 api slurm)
+fi
+
 # Run API baselines (Table 7 API rows): Perspective + TTP (OpenRouter) on full dataset
 if python scripts/evaluate_openai_moderation.py \
   --baselines perspective ttp_openrouter \
@@ -75,7 +84,8 @@ if python scripts/evaluate_openai_moderation.py \
   --openrouter-key "$OPENROUTER_API_KEY" \
   --openrouter-model "${OPENROUTER_MODEL:-openai/gpt-4o}" \
   --perspective-key "$PERSPECTIVE_API_KEY" \
-  --output results/moderation/table7_api_results.json; then
+  --output results/moderation/table7_api_results.json \
+  "${WANDB_ARGS[@]}"; then
     echo "Baselines (API) complete!"
     echo "Results saved to: results/moderation/table7_api_results.json"
 else
