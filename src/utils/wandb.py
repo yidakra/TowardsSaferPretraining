@@ -109,19 +109,18 @@ class WandbSession:
         for k, v in payload.items():
             self._run.summary[k] = v
 
-    def log_json_artifact(self, path: Path, *, name: str, artifact_type: str = "results") -> None:
+    def _log_artifact(self, path: Path, *, name: str, artifact_type: str = "results") -> None:
         if not self.enabled or not path.exists():
             return
         artifact = self._wandb.Artifact(name=name, type=artifact_type)
         artifact.add_file(str(path))
         self._run.log_artifact(artifact)
 
+    def log_json_artifact(self, path: Path, *, name: str, artifact_type: str = "results") -> None:
+        self._log_artifact(path, name=name, artifact_type=artifact_type)
+
     def log_file_artifact(self, path: Path, *, name: str, artifact_type: str = "results") -> None:
-        if not self.enabled or not path.exists():
-            return
-        artifact = self._wandb.Artifact(name=name, type=artifact_type)
-        artifact.add_file(str(path))
-        self._run.log_artifact(artifact)
+        self._log_artifact(path, name=name, artifact_type=artifact_type)
 
     def finish(self) -> None:
         if self.enabled:
