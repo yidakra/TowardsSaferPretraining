@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -31,9 +32,14 @@ from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overal
 DEFAULT_LANGS = ["spa_Latn", "fra_Latn", "deu_Latn", "arb_Arab", "hin_Deva", "zho_Hans"]
 
 
-def _run(cmd: List[str]) -> None:
+def _run(cmd: List[str], *, disable_wandb: bool = False) -> None:
     print("+ " + " ".join(cmd))
-    subprocess.run(cmd, check=True)
+    env = None
+    if disable_wandb:
+        env = os.environ.copy()
+        env["WANDB_ENABLED"] = "0"
+        env["WANDB_MODE"] = "disabled"
+    subprocess.run(cmd, check=True, env=env)
 
 
 def main() -> int:
@@ -101,14 +107,14 @@ def main() -> int:
 
             if "harmformer" in args.setups:
                 out_path = out_dir / f"harmformer_{lang}.json"
-                _run(common + ["--setups", "harmformer", "--output", str(out_path)])
+                _run(common + ["--setups", "harmformer", "--output", str(out_path)], disable_wandb=True)
                 if out_path.exists():
                     payload = json.loads(out_path.read_text(encoding="utf-8"))
                     collected_results[f"harmformer_{lang}"] = extract_overall_metrics(payload)
 
             if "llama_guard" in args.setups:
                 out_path = out_dir / f"llama_guard_{lang}.json"
-                _run(common + ["--setups", "llama_guard", "--output", str(out_path)])
+                _run(common + ["--setups", "llama_guard", "--output", str(out_path)], disable_wandb=True)
                 if out_path.exists():
                     payload = json.loads(out_path.read_text(encoding="utf-8"))
                     collected_results[f"llama_guard_{lang}"] = extract_overall_metrics(payload)
@@ -128,15 +134,17 @@ def main() -> int:
         },
         extra_tags=["multilingual", "ttp-eval", "reproduction"],
     )
-    for key, metrics in collected_results.items():
-        flat = {f"{key}/{k}": v for k, v in metrics.items()}
-        wandb_run.update_summary(flat)
-    wandb_run.update_summary({"outputs/count": len(collected_results), "output/dir": str(out_dir)})
-    for key in collected_results:
-        path = out_dir / f"{key}.json"
-        if path.exists():
-            wandb_run.log_json_artifact(path, name=f"ttp_eval_multilingual_{path.stem}")
-    wandb_run.finish()
+    try:
+        for key, metrics in collected_results.items():
+            flat = {f"{key}/{k}": v for k, v in metrics.items()}
+            wandb_run.update_summary(flat)
+        wandb_run.update_summary({"output/count": len(collected_results), "output/dir": str(out_dir)})
+        for key in collected_results:
+            path = out_dir / f"{key}.json"
+            if path.exists():
+                wandb_run.log_json_artifact(path, name=f"ttp_eval_multilingual_{path.stem}")
+    finally:
+        wandb_run.finish()
 
     print(f"Done. Wrote results to: {out_dir}")
     return 0

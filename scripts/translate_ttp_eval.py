@@ -172,25 +172,27 @@ def main() -> int:
         },
         extra_tags=["translation", "ttp-eval", "reproduction"],
     )
-    wandb_run.update_summary(
-        {
-            "translation/rows": len(rows),
-            "translation/num_languages": len(args.tgt_langs),
-            "translation/output_dir": str(out_dir),
+    try:
+        wandb_run.update_summary(
+            {
+                "translation/rows": len(rows),
+                "translation/num_languages": len(args.tgt_langs),
+                "translation/output_dir": str(out_dir),
+            }
+        )
+        summary_payload = {
+            "generated_files": [str(p) for p in generated_files],
+            "rows": len(rows),
+            "languages": args.tgt_langs,
         }
-    )
-    summary_payload = {
-        "generated_files": [str(p) for p in generated_files],
-        "rows": len(rows),
-        "languages": args.tgt_langs,
-    }
-    summary_path = out_dir / "translation_summary.json"
-    summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
-    wandb_run.log_json_artifact(summary_path, name=f"translation_summary_{out_dir.name}")
-    for generated in generated_files:
-        if generated.exists():
-            wandb_run.log_file_artifact(generated, name=f"translated_ttp_eval_{generated.stem}", artifact_type="dataset")
-    wandb_run.finish()
+        summary_path = out_dir / "translation_summary.json"
+        summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
+        wandb_run.log_json_artifact(summary_path, name=f"translation_summary_{out_dir.name}")
+        for generated in generated_files:
+            if generated.exists():
+                wandb_run.log_file_artifact(generated, name=f"translated_ttp_eval_{generated.stem}", artifact_type="dataset")
+    finally:
+        wandb_run.finish()
 
     return 0
 

@@ -274,10 +274,12 @@ def main() -> int:
         },
         extra_tags=["rtp", "harmformer", "reproduction"],
     )
-    wandb_run.update_summary(extract_overall_metrics(payload))
-    wandb_run.update_summary({"output/path": str(out_path)})
-    wandb_run.log_json_artifact(out_path, name=f"rtp_continuations_{out_path.stem}")
-    wandb_run.finish()
+    try:
+        wandb_run.update_summary(extract_overall_metrics(payload))
+        wandb_run.update_summary({"output/path": str(out_path)})
+        wandb_run.log_json_artifact(out_path, name=f"rtp_continuations_{out_path.stem}")
+    finally:
+        wandb_run.finish()
 
     print(f"Saved: {out_path}")
     return 0

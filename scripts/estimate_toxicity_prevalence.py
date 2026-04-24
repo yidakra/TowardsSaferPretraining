@@ -272,6 +272,8 @@ def main() -> int:
         counts = _accumulate_counts(lab, counts)
 
     n = len(labels)
+    if n == 0:
+        raise SystemExit("No labels produced.")
     payload: Dict[str, Any] = {
         "config": {
             "input_path": str(in_path),
@@ -326,10 +328,12 @@ def main() -> int:
         },
         extra_tags=["prevalence", "reproduction"],
     )
-    wandb_run.update_summary(extract_overall_metrics(payload))
-    wandb_run.update_summary({"output/path": str(out_path)})
-    wandb_run.log_json_artifact(out_path, name=f"toxicity_prevalence_{out_path.stem}")
-    wandb_run.finish()
+    try:
+        wandb_run.update_summary(extract_overall_metrics(payload))
+        wandb_run.update_summary({"output/path": str(out_path)})
+        wandb_run.log_json_artifact(out_path, name=f"toxicity_prevalence_{out_path.stem}")
+    finally:
+        wandb_run.finish()
 
     print(f"Saved: {out_path}")
     return 0

@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+
+SENSITIVE_TOKENS = ("key", "token", "secret", "password")
 
 
 def _env_true(name: str, default: bool = False) -> bool:
@@ -25,14 +28,25 @@ def _env_true(name: str, default: bool = False) -> bool:
 
 def sanitize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Best-effort removal of secrets from run config."""
-    redacted: Dict[str, Any] = {}
-    for key, value in config.items():
-        key_lower = str(key).lower()
-        if any(tok in key_lower for tok in ("key", "token", "secret", "password")):
-            redacted[key] = "***"
-        else:
-            redacted[key] = value
-    return redacted
+    def _is_sensitive(path: str) -> bool:
+        key = path.lower()
+        return any(tok in key for tok in SENSITIVE_TOKENS)
+
+    def _redact(value: Any, path: str = "") -> Any:
+        if isinstance(value, dict):
+            out: Dict[str, Any] = {}
+            for k, v in value.items():
+                child = f"{path}.{k}" if path else str(k)
+                if _is_sensitive(child):
+                    out[k] = "***"
+                else:
+                    out[k] = _redact(v, child)
+            return out
+        if isinstance(value, list):
+            return [_redact(v, f"{path}[{idx}]") for idx, v in enumerate(value)]
+        return value
+
+    return _redact(config)
 
 
 def flatten_dict(data: Dict[str, Any], prefix: str = "", sep: str = "/") -> Dict[str, Any]:
@@ -95,26 +109,42 @@ class WandbSession:
     def enabled(self) -> bool:
         return self._run is not None
 
+    def _disable(self) -> None:
+        self._run = None
+        self._wandb = None
+
     def log(self, payload: Dict[str, Any], step: Optional[int] = None) -> None:
         if not self.enabled:
             return
-        if step is None:
-            self._run.log(payload)
-        else:
-            self._run.log(payload, step=step)
+        try:
+            if step is None:
+                self._run.log(payload)
+            else:
+                self._run.log(payload, step=step)
+        except Exception as exc:
+            print(f"[wandb] log failed; disabling wandb session: {exc}", file=sys.stderr)
+            self._disable()
 
     def update_summary(self, payload: Dict[str, Any]) -> None:
         if not self.enabled:
             return
-        for k, v in payload.items():
-            self._run.summary[k] = v
+        try:
+            for k, v in payload.items():
+                self._run.summary[k] = v
+        except Exception as exc:
+            print(f"[wandb] update_summary failed; disabling wandb session: {exc}", file=sys.stderr)
+            self._disable()
 
     def _log_artifact(self, path: Path, *, name: str, artifact_type: str = "results") -> None:
         if not self.enabled or not path.exists():
             return
-        artifact = self._wandb.Artifact(name=name, type=artifact_type)
-        artifact.add_file(str(path))
-        self._run.log_artifact(artifact)
+        try:
+            artifact = self._wandb.Artifact(name=name, type=artifact_type)
+            artifact.add_file(str(path))
+            self._run.log_artifact(artifact)
+        except Exception as exc:
+            print(f"[wandb] log_artifact failed; disabling wandb session: {exc}", file=sys.stderr)
+            self._disable()
 
     def log_json_artifact(self, path: Path, *, name: str, artifact_type: str = "results") -> None:
         self._log_artifact(path, name=name, artifact_type=artifact_type)
@@ -123,8 +153,14 @@ class WandbSession:
         self._log_artifact(path, name=name, artifact_type=artifact_type)
 
     def finish(self) -> None:
-        if self.enabled:
+        if not self.enabled:
+            return
+        try:
             self._run.finish()
+        except Exception as exc:
+            print(f"[wandb] finish failed; disabling wandb session: {exc}", file=sys.stderr)
+        finally:
+            self._disable()
 
 
 def init_wandb_from_args(
@@ -144,26 +180,26 @@ def init_wandb_from_args(
 
     try:
         import wandb  # type: ignore
-    except Exception:
-        print("[wandb] wandb package not installed; continuing without wandb logging.")
+
+        tags: List[str] = list(getattr(args, "wandb_tags", []) or [])
+        if extra_tags:
+            tags.extend(list(extra_tags))
+
+        safe_config = sanitize_config(config)
+        run = wandb.init(
+            project=getattr(args, "wandb_project", "fact"),
+            entity=getattr(args, "wandb_entity", "foundationmodels"),
+            group=getattr(args, "wandb_group", None),
+            name=getattr(args, "wandb_name", None) or run_name,
+            job_type=job_type,
+            tags=tags or None,
+            mode=mode,
+            config=safe_config,
+        )
+        return WandbSession(_run=run, _wandb=wandb)
+    except Exception as exc:
+        print(f"[wandb] initialization failed; continuing without wandb logging: {exc}", file=sys.stderr)
         return WandbSession()
-
-    tags: List[str] = list(getattr(args, "wandb_tags", []) or [])
-    if extra_tags:
-        tags.extend(list(extra_tags))
-
-    safe_config = sanitize_config(config)
-    run = wandb.init(
-        project=getattr(args, "wandb_project", "TowardsSaferPretraining"),
-        entity=getattr(args, "wandb_entity", None),
-        group=getattr(args, "wandb_group", None),
-        name=getattr(args, "wandb_name", None) or run_name,
-        job_type=job_type,
-        tags=tags or None,
-        mode=mode,
-        config=safe_config,
-    )
-    return WandbSession(_run=run, _wandb=wandb)
 
 
 def extract_overall_metrics(payload: Dict[str, Any]) -> Dict[str, Any]:

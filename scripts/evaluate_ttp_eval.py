@@ -370,28 +370,6 @@ def main() -> int:
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    wandb_run = init_wandb_from_args(
-        args,
-        run_name="evaluate_ttp_eval",
-        job_type="evaluation",
-        config={
-            "data_path": args.data_path,
-            "dimension": args.dimension,
-            "setups": args.setups,
-            "device": args.device,
-            "invalid_policy": args.invalid_policy or "exclude",
-            "lang_filter": args.lang,
-            "include_unknown_lang": args.include_unknown_lang,
-            "local_models": args.local_model,
-            "dtype": args.dtype,
-            "quantization": args.quantization,
-            "openai_model": args.openai_model,
-            "openrouter_model": args.openrouter_model,
-            "gemini_model": args.gemini_model,
-        },
-        extra_tags=["ttp-eval", "reproduction"],
-    )
-
     payload: Dict[str, Any] = {
         "run_metadata": gather_run_metadata(repo_root=str(Path(__file__).parent.parent)),
         "evaluation_config": {
@@ -416,16 +394,39 @@ def main() -> int:
         "results": results,
     }
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    wandb_run.update_summary(extract_overall_metrics(payload))
-    wandb_run.update_summary(
-        {
-            "config/total_samples": len(samples),
-            "config/num_setups": len(setups),
-            "output/path": str(out_path),
-        }
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name="evaluate_ttp_eval",
+        job_type="evaluation",
+        config={
+            "data_path": args.data_path,
+            "dimension": args.dimension,
+            "setups": args.setups,
+            "device": args.device,
+            "invalid_policy": args.invalid_policy or "exclude",
+            "lang_filter": args.lang,
+            "include_unknown_lang": args.include_unknown_lang,
+            "local_models": args.local_model,
+            "dtype": args.dtype,
+            "quantization": args.quantization,
+            "openai_model": args.openai_model,
+            "openrouter_model": args.openrouter_model,
+            "gemini_model": args.gemini_model,
+        },
+        extra_tags=["ttp-eval", "reproduction"],
     )
-    wandb_run.log_json_artifact(out_path, name=f"ttp_eval_{out_path.stem}")
-    wandb_run.finish()
+    try:
+        wandb_run.update_summary(extract_overall_metrics(payload))
+        wandb_run.update_summary(
+            {
+                "config/total_samples": len(samples),
+                "config/num_setups": len(setups),
+                "output/path": str(out_path),
+            }
+        )
+        wandb_run.log_json_artifact(out_path, name=f"ttp_eval_{out_path.stem}")
+    finally:
+        wandb_run.finish()
     print(f"Saved: {out_path}")
     return 0
 
