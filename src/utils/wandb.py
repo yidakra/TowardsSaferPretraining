@@ -59,7 +59,7 @@ def add_wandb_args(parser) -> None:
     )
     parser.add_argument(
         "--wandb-entity",
-        default=os.environ.get("WANDB_ENTITY"),
+        default=os.environ.get("WANDB_ENTITY", "foundationmodels"),
         help="wandb entity/team (optional)",
     )
     parser.add_argument(
