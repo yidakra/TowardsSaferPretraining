@@ -132,8 +132,10 @@ def main() -> int:
         flat = {f"{key}/{k}": v for k, v in metrics.items()}
         wandb_run.update_summary(flat)
     wandb_run.update_summary({"outputs/count": len(collected_results), "output/dir": str(out_dir)})
-    for path in sorted(out_dir.glob("*.json")):
-        wandb_run.log_json_artifact(path, name=f"ttp_eval_multilingual_{path.stem}")
+    for key in collected_results:
+        path = out_dir / f"{key}.json"
+        if path.exists():
+            wandb_run.log_json_artifact(path, name=f"ttp_eval_multilingual_{path.stem}")
     wandb_run.finish()
 
     print(f"Done. Wrote results to: {out_dir}")
