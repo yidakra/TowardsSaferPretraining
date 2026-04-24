@@ -76,6 +76,7 @@ def _lazy_imports() -> None:
 
 
 def _lazy_imports_for_setups(setups: List[str]) -> None:
+    """Import setup-specific clients only for the selected evaluation modes."""
     global PerspectiveAPI, LlamaGuard, TransformersTTPClient, OpenRouterTTPClient
     global OpenAITTPClient, GeminiTTPEvaluator
 
@@ -131,6 +132,8 @@ def _toxic_label() -> HarmLabel:
 
 
 class Predictor(Protocol):
+    """Minimal prediction interface shared by all evaluator backends."""
+
     def predict(self, text: str) -> HarmLabel:
         ...
 
@@ -143,6 +146,7 @@ def _evaluate_setup(
     *,
     invalid_policy: str,
 ) -> Dict[str, Any]:
+    """Evaluate one classifier setup and return standardized metrics payload."""
     _lazy_imports()
     preds: List[HarmLabel] = []
     gts: List[HarmLabel] = []
@@ -187,6 +191,7 @@ def _evaluate_setup(
 
 
 def main() -> int:
+    """Run the unified TTP-Eval benchmark across the requested setups."""
     p = argparse.ArgumentParser(description="Unified evaluator for TTP-Eval")
     p.add_argument("--data-path", default="data/TTP-Eval/TTPEval.tsv")
     p.add_argument("--limit", type=int)

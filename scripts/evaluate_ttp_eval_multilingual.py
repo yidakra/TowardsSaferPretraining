@@ -33,6 +33,7 @@ DEFAULT_LANGS = ["spa_Latn", "fra_Latn", "deu_Latn", "arb_Arab", "hin_Deva", "zh
 
 
 def _run(cmd: List[str], *, disable_wandb: bool = False) -> None:
+    """Execute a subprocess command, optionally forcing W&B off for child runs."""
     print("+ " + " ".join(cmd))
     env = None
     if disable_wandb:
@@ -43,6 +44,7 @@ def _run(cmd: List[str], *, disable_wandb: bool = False) -> None:
 
 
 def main() -> int:
+    """Evaluate translated TTP-Eval files and aggregate multilingual summaries."""
     p = argparse.ArgumentParser(description="Evaluate HarmFormer/Llama Guard on translated TTP-Eval TSVs")
     p.add_argument(
         "--translated-dir",

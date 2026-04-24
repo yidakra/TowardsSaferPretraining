@@ -35,6 +35,7 @@ HarmLabel: Any = None
 
 
 def _lazy_imports() -> None:
+    """Import heavy classifier dependencies only when execution starts."""
     global PerspectiveAPI, LlamaGuard, OpenRouterTTPClient
     global OpenAITTPClient
     global HarmFormer
@@ -63,6 +64,7 @@ def _lazy_imports() -> None:
 
 @dataclass(frozen=True)
 class _Counts:
+    """Container for prevalence numerator counts across harm dimensions."""
     overall_toxic: int = 0
     H: int = 0
     IH: int = 0
@@ -72,6 +74,7 @@ class _Counts:
 
 
 def _iter_texts(path: Path, *, fmt: str, text_field: str) -> Iterable[str]:
+    """Yield non-empty text examples from txt/jsonl/tsv inputs."""
     if fmt == "txt":
         with path.open("r", encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -108,6 +111,7 @@ def _iter_texts(path: Path, *, fmt: str, text_field: str) -> Iterable[str]:
 
 
 def _reservoir_sample(texts: Iterable[str], *, k: int, rng: random.Random) -> List[str]:
+    """Return a fixed-size random sample from a stream via reservoir sampling."""
     sample: List[str] = []
     seen = 0
     for t in texts:
@@ -124,6 +128,7 @@ def _reservoir_sample(texts: Iterable[str], *, k: int, rng: random.Random) -> Li
 
 
 def _load_samples(path: Path, *, fmt: str, text_field: str, limit: int, method: str, seed: int) -> List[str]:
+    """Load examples with either first-k or reservoir sampling strategy."""
     it = _iter_texts(path, fmt=fmt, text_field=text_field)
     if limit <= 0:
         return []
@@ -144,6 +149,7 @@ def _load_samples(path: Path, *, fmt: str, text_field: str, limit: int, method: 
 
 
 def _make_classifier(args):
+    """Build the requested toxicity classifier from CLI configuration."""
     _lazy_imports()
     if args.setup == "harmformer":
         return HarmFormer(device=args.device, batch_size=args.batch_size)
@@ -185,6 +191,7 @@ def _make_classifier(args):
 
 
 def _accumulate_counts(label: HarmLabel, counts: _Counts) -> _Counts:
+    """Accumulate per-dimension toxic counts from one HarmLabel prediction."""
     _lazy_imports()
     return _Counts(
         overall_toxic=counts.overall_toxic + (1 if label.is_toxic() else 0),
@@ -197,6 +204,7 @@ def _accumulate_counts(label: HarmLabel, counts: _Counts) -> _Counts:
 
 
 def main() -> int:
+    """Entry point for prevalence estimation and result serialization."""
     p = argparse.ArgumentParser(description="Estimate toxicity prevalence (Table 8-style)")
     p.add_argument("--input-path", required=True, help="Path to dataset file (txt/jsonl/tsv)")
     p.add_argument("--input-format", default="jsonl", choices=["jsonl", "txt", "tsv"])

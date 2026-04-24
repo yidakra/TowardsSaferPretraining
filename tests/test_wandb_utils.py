@@ -4,6 +4,7 @@ from src.utils.wandb import extract_overall_metrics, sanitize_config
 
 
 def test_sanitize_config_redacts_nested_sensitive_keys():
+    """Nested keys containing secret-like tokens should be redacted recursively."""
     cfg = {
         "api_key": "root-secret",
         "nested": {
@@ -29,6 +30,7 @@ def test_sanitize_config_redacts_nested_sensitive_keys():
 
 
 def test_extract_overall_metrics_covers_supported_payload_shapes():
+    """Metric extraction should include all documented payload schema branches."""
     payload = {
         "results": [
             {

@@ -20,6 +20,7 @@ SENSITIVE_TOKENS = ("key", "token", "secret", "password")
 
 
 def _env_true(name: str, default: bool = False) -> bool:
+    """Parse a truthy environment variable using common boolean spellings."""
     raw = os.environ.get(name)
     if raw is None:
         return default
@@ -50,6 +51,7 @@ def sanitize_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def flatten_dict(data: Dict[str, Any], prefix: str = "", sep: str = "/") -> Dict[str, Any]:
+    """Flatten a nested dictionary into separator-delimited keys."""
     out: Dict[str, Any] = {}
     for k, v in data.items():
         kk = f"{prefix}{sep}{k}" if prefix else str(k)
@@ -61,6 +63,7 @@ def flatten_dict(data: Dict[str, Any], prefix: str = "", sep: str = "/") -> Dict
 
 
 def add_wandb_args(parser) -> None:
+    """Register shared CLI arguments used by scripts that support W&B logging."""
     parser.add_argument(
         "--wandb",
         action="store_true",
@@ -102,18 +105,22 @@ def add_wandb_args(parser) -> None:
 
 @dataclass
 class WandbSession:
+    """Fail-open wrapper around a W&B run object and artifact API."""
     _run: Any = None
     _wandb: Any = None
 
     @property
     def enabled(self) -> bool:
+        """Return True when an active W&B run is available."""
         return self._run is not None
 
     def _disable(self) -> None:
+        """Drop run references after an error to make future calls no-op safely."""
         self._run = None
         self._wandb = None
 
     def log(self, payload: Dict[str, Any], step: Optional[int] = None) -> None:
+        """Log scalar metrics or payload dictionaries to W&B."""
         if not self.enabled:
             return
         try:
@@ -126,6 +133,7 @@ class WandbSession:
             self._disable()
 
     def update_summary(self, payload: Dict[str, Any]) -> None:
+        """Update W&B run summary keys in a fail-open way."""
         if not self.enabled:
             return
         try:
@@ -136,6 +144,7 @@ class WandbSession:
             self._disable()
 
     def _log_artifact(self, path: Path, *, name: str, artifact_type: str = "results") -> None:
+        """Upload a file artifact when available and degrade safely on failure."""
         if not self.enabled or not path.exists():
             return
         try:
@@ -147,12 +156,15 @@ class WandbSession:
             self._disable()
 
     def log_json_artifact(self, path: Path, *, name: str, artifact_type: str = "results") -> None:
+        """Log a JSON artifact file for downstream inspection or reproducibility."""
         self._log_artifact(path, name=name, artifact_type=artifact_type)
 
     def log_file_artifact(self, path: Path, *, name: str, artifact_type: str = "results") -> None:
+        """Log a generic file artifact with a custom artifact type."""
         self._log_artifact(path, name=name, artifact_type=artifact_type)
 
     def finish(self) -> None:
+        """Finish the W&B run and always transition the session to disabled."""
         if not self.enabled:
             return
         try:
@@ -171,6 +183,7 @@ def init_wandb_from_args(
     config: Dict[str, Any],
     extra_tags: Optional[Iterable[str]] = None,
 ) -> WandbSession:
+    """Create a fail-open W&B session from parsed CLI args and environment flags."""
     enabled = bool(getattr(args, "wandb", False)) or _env_true("WANDB_ENABLED", default=False)
     mode = str(getattr(args, "wandb_mode", "online"))
     if mode == "disabled":
@@ -253,4 +266,5 @@ def extract_overall_metrics(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_json(path: Path) -> Dict[str, Any]:
+    """Read a UTF-8 JSON file into a dictionary."""
     return json.loads(path.read_text(encoding="utf-8"))

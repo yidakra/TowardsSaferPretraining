@@ -29,6 +29,7 @@ from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overal
 
 
 def _get_nested_text(row: Mapping[str, Any], key: str) -> str:
+    """Extract a nested `{key: {text: ...}}` field as a plain string."""
     value = row.get(key)
     if isinstance(value, Mapping):
         value_map = cast(Mapping[str, Any], value)
@@ -59,6 +60,7 @@ def _get_prompt_toxicity(row: Mapping[str, Any]) -> Optional[float]:
 
 
 def _bucket(prompt_tox: Optional[float], *, neutral_max: float, provocative_min: float) -> Optional[str]:
+    """Map a prompt toxicity score into neutral/passive/provocative buckets."""
     if prompt_tox is None:
         return None
     if prompt_tox < neutral_max:
@@ -69,6 +71,7 @@ def _bucket(prompt_tox: Optional[float], *, neutral_max: float, provocative_min:
 
 
 def _iter_rtp(*, streaming: bool) -> Iterable[Mapping[str, Any]]:
+    """Stream RTP training rows from the Hugging Face dataset loader."""
     # Lazy import so `--help` works even if deps aren't installed yet.
     from datasets import load_dataset  # type: ignore
 
@@ -79,6 +82,7 @@ def _iter_rtp(*, streaming: bool) -> Iterable[Mapping[str, Any]]:
 
 
 def main() -> int:
+    """Run RTP continuation leakage evaluation and write a JSON report."""
     p = argparse.ArgumentParser(
         description="Compute RTP leakage rates from dataset continuations using HarmFormer"
     )
@@ -152,6 +156,7 @@ def main() -> int:
         processed = 0
 
         def flush() -> None:
+            """Score one inference batch and update leakage counters."""
             nonlocal processed, error_count
             if not batch_texts:
                 return

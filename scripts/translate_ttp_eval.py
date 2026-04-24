@@ -26,12 +26,14 @@ from src.utils.wandb import add_wandb_args, init_wandb_from_args
 
 
 def _read_tsv(path: Path) -> List[Dict[str, str]]:
+    """Read a TSV file into a list of row dictionaries."""
     with path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         return [dict(r) for r in reader]
 
 
 def _write_tsv(path: Path, rows: List[Dict[str, str]], fieldnames: List[str]) -> None:
+    """Write row dictionaries to a TSV file with a stable header order."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, delimiter="\t", fieldnames=fieldnames, quoting=csv.QUOTE_MINIMAL)
@@ -41,16 +43,19 @@ def _write_tsv(path: Path, rows: List[Dict[str, str]], fieldnames: List[str]) ->
 
 
 def _batched(items: List[str], batch_size: int) -> Iterable[List[str]]:
+    """Yield fixed-size slices from a list for batched model inference."""
     for i in range(0, len(items), batch_size):
         yield items[i : i + batch_size]
 
 
 def _lang_cell_from_nllb_code(nllb_code: str) -> str:
+    """Convert NLLB language tags like `spa_Latn` to dataset short code `spa`."""
     # NLLB codes look like `spa_Latn`. The existing shipped translations store `spa`.
     return nllb_code.split("_", 1)[0]
 
 
 def main() -> int:
+    """Translate TTPEval rows into target languages and emit TSV artifacts."""
     p = argparse.ArgumentParser(description="Translate TTPEval.tsv using NLLB")
     p.add_argument("--input", default="data/TTP-Eval/TTPEval.tsv")
     p.add_argument(
