@@ -163,12 +163,15 @@ class WandbSession:
         """Log a generic file artifact with a custom artifact type."""
         self._log_artifact(path, name=name, artifact_type=artifact_type)
 
-    def finish(self) -> None:
+    def finish(self, *, exit_code: Optional[int] = None) -> None:
         """Finish the W&B run and always transition the session to disabled."""
         if not self.enabled:
             return
         try:
-            self._run.finish()
+            if exit_code is not None:
+                self._run.finish(exit_code=exit_code)
+            else:
+                self._run.finish()
         except Exception as exc:
             print(f"[wandb] finish failed; disabling wandb session: {exc}", file=sys.stderr)
         finally:
