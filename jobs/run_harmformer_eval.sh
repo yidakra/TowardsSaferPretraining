@@ -48,10 +48,21 @@ source venv/bin/activate || {
     exit 1
 }
 
+# Load environment variables from .env file (absolute path for Slurm)
+if [[ -f "$PROJECT_DIR/.env" ]]; then
+  set -a; source "$PROJECT_DIR/.env" 2>/dev/null || true; set +a
+else
+  set -a; source "$HOME/TowardsSaferPretraining/.env" 2>/dev/null || true; set +a
+fi
+
 # Optional CodeCarbon tracking
 mkdir -p results/codecarbon
 export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
 export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
+
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args harmformer table6 slurm
 
 # Run HarmFormer evaluation on TTP-Eval (Table 6)
 mkdir -p results/harmformer
@@ -60,7 +71,8 @@ if python scripts/evaluate_ttp_eval.py \
   --setups harmformer \
   --device cuda \
   --dimension toxic \
-  --output results/harmformer/harmformer_results.json; then
+  --output results/harmformer/harmformer_results.json \
+  "${WANDB_ARGS[@]}"; then
     echo "HarmFormer Evaluation Complete!"
     echo "Results saved to: results/harmformer/harmformer_results.json"
 else

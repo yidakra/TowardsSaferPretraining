@@ -52,6 +52,13 @@ Required environment variables in `.env`:
 - `GEMINI_API_KEY` (Gemini TTP row in Table 4)
 - `HUGGINGFACE_HUB_TOKEN` (or `HF_TOKEN`) (HF gated models: Llama Guard + some local baselines)
 
+Optional experiment tracking variables:
+- `WANDB_ENABLED=1` to enable Weights & Biases logging in all patched job scripts
+- `WANDB_API_KEY` for authentication
+- `WANDB_PROJECT` (defaults to `fact`; set in `.env.example` and as argparse fallback)
+- `WANDB_ENTITY` (defaults to `foundationmodels`; set in `.env.example` and as argparse fallback)
+- `WANDB_GROUP`, `WANDB_MODE` (optional)
+
 Note: OpenRouter calls require an account with sufficient credits. If you cannot fund OpenRouter,
 you can still reproduce the local-only parts (e.g., HarmFormer, Llama Guard, HAVOC/RTP), but Table 3
 and the TTP rows in Table 7 will be unavailable.
@@ -120,6 +127,7 @@ python scripts/evaluate_ttp_eval.py \
   --openrouter-key "$OPENROUTER_API_KEY" \
   --openrouter-model "${OPENROUTER_MODEL:-openai/gpt-4o}" \
   --dimension toxic \
+  --wandb \
   --output results/ttp_eval_baselines/results.json
 
 python scripts/evaluate_ttp_eval.py \
@@ -128,8 +136,13 @@ python scripts/evaluate_ttp_eval.py \
   --gemini-key "$GEMINI_API_KEY" \
   --gemini-model "${GEMINI_MODEL:-gemini-2.0-flash}" \
   --dimension toxic \
+  --wandb \
   --output results/ttp_eval_baselines/table4_gemini_ttp.json
 ```
+
+W&B is optional for every script. For local runs, add `--wandb` (plus optional
+`--wandb-project/--wandb-entity/--wandb-group`). For Slurm runs in `jobs/`,
+set `WANDB_ENABLED=1` in your environment or `.env`.
 
 ### 3) Compute all result JSONs (Figures)
 

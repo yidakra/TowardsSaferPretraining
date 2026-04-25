@@ -53,11 +53,16 @@ mkdir -p results/codecarbon
 export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
 export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args moderation table7 local slurm
+
 # Run ONLY GPU-heavy local baselines (Table 7 local rows)
 if python scripts/evaluate_openai_moderation.py \
   --baselines llama_guard llama_guard_zero_shot llama_guard_few_shot harmformer \
   --device cuda \
-  --output results/moderation/table7_local_results.json; then
+  --output results/moderation/table7_local_results.json \
+  "${WANDB_ARGS[@]}"; then
     echo "Baselines (local) complete!"
     echo "Results saved to: results/moderation/table7_local_results.json"
 else

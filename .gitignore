@@ -82,6 +82,9 @@ archives/
 # Results (generated; do not version)
 results/
 
+# W&B local run cache (runs sync to cloud; local dir is just a cache)
+wandb/
+
 # Temporary/test files
 generate_havoc_report.py
 *_temp.py

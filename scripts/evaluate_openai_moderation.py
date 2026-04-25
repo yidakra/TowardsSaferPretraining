@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 
 # NOTE: Heavy imports are deferred so `--help` is fast and does not require
@@ -126,7 +127,7 @@ def _evaluate_binary(
     metrics = calculate_metrics(predictions=preds, ground_truth=gts, dimension="toxic")
 
     client_stats = None
-    if hasattr(classifier, "get_stats") and callable(getattr(classifier, "get_stats")):
+    if hasattr(classifier, "get_stats") and callable(classifier.get_stats):
         try:
             client_stats = classifier.get_stats()  # type: ignore[attr-defined]
         except Exception:
@@ -198,6 +199,7 @@ def main() -> int:
         default=None,
         help="HF model id override (default: meta-llama/Llama-Guard-3-8B)",
     )
+    add_wandb_args(parser)
 
     args = parser.parse_args()
 
@@ -212,117 +214,150 @@ def main() -> int:
         non_toxic = len(samples) - toxic
         print(f"Loaded {len(samples)} samples (toxic={toxic}, non_toxic={non_toxic})")
 
-    classifiers: List[Tuple[str, Any]] = []
-
-    if "perspective" in args.baselines:
-        perspective_key = args.perspective_key or os.environ.get("PERSPECTIVE_API_KEY")
-        if not perspective_key and os.environ.get("ENABLE_PERSPECTIVE_WITH_GEMINI_KEY") == "1":
-            perspective_key = os.environ.get("GEMINI_API_KEY")
-        if not perspective_key:
-            raise SystemExit("Perspective enabled but no key provided (set PERSPECTIVE_API_KEY or pass --perspective-key)")
-        classifiers.append(
-            (
-                "Perspective API",
-                PerspectiveAPI(
-                    api_key=perspective_key,
-                    mode="paper_table4",  # keeps behavior consistent with paper
-                    paper_threshold=args.perspective_threshold,
-                    paper_chunk_chars=500,
-                ),
-            )
-        )
-
-    # Llama Guard variants are processed sequentially below to avoid OOM
-    # (loading 3 copies of 8B model would exceed A100 40GB memory)
-    llama_guard_modes: List[Tuple[str, str]] = []
-    if "llama_guard" in args.baselines:
-        llama_guard_modes.append(("Llama Guard", "focused"))
-    if "llama_guard_zero_shot" in args.baselines:
-        llama_guard_modes.append(("Llama Guard Zero Shot", "zero_shot"))
-    if "llama_guard_few_shot" in args.baselines:
-        llama_guard_modes.append(("Llama Guard Few Shot", "few_shot"))
-
-    if "ttp" in args.baselines:
-        openai_key = args.openai_key or os.environ.get("OPENAI_API_KEY")
-        if not openai_key:
-            raise SystemExit("TTP enabled but no OpenAI key provided (set OPENAI_API_KEY or pass --openai-key)")
-        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
-        classifiers.append(("TTP", OpenAITTPClient(api_key=openai_key, model="gpt-4o", fail_open=fail_open)))
-
-    if "ttp_openrouter" in args.baselines:
-        key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
-        if not key:
-            raise SystemExit("TTP (OpenRouter) enabled but no OpenRouter key provided (set OPENROUTER_API_KEY or pass --openrouter-key)")
-        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
-        classifiers.append(
-            (
-                f"TTP (OpenRouter: {args.openrouter_model})",
-                OpenRouterTTPClient(
-                    api_key=key,
-                    model=args.openrouter_model,
-                    referer=args.openrouter_referer,
-                    title=args.openrouter_title,
-                    fail_open=fail_open,
-                ),
-            )
-        )
-
-    if "harmformer" in args.baselines:
-        classifiers.append(("HarmFormer", HarmFormer(device=args.device)))
-
     results: List[Dict[str, Any]] = []
     all_baseline_names: List[str] = []
 
     invalid_policy = args.invalid_policy or "exclude"
 
-    # Process Llama Guard variants sequentially to avoid OOM
-    # (each 8B model uses ~16GB; loading 3 at once would exceed A100 40GB)
-    for name, mode in llama_guard_modes:
-        try:
-            print(f"Loading {name} (mode={mode})...")
-            clf = LlamaGuard(
-                model_name=args.llama_guard_model or LlamaGuard.MODEL_NAME,
-                device=args.device,
-                prompt_mode=mode,
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name="evaluate_openai_moderation",
+        job_type="evaluation",
+        config={
+            "data_path": args.data_path,
+            "baselines": args.baselines,
+            "device": args.device,
+            "invalid_policy": invalid_policy,
+            "openrouter_model": args.openrouter_model,
+            "perspective_threshold": args.perspective_threshold,
+            "limit": args.limit,
+        },
+        extra_tags=["openai-moderation", "reproduction"],
+    )
+
+    try:
+        classifiers: List[Tuple[str, Any]] = []
+
+        if "perspective" in args.baselines:
+            perspective_key = args.perspective_key or os.environ.get("PERSPECTIVE_API_KEY")
+            if not perspective_key and os.environ.get("ENABLE_PERSPECTIVE_WITH_GEMINI_KEY") == "1":
+                perspective_key = os.environ.get("GEMINI_API_KEY")
+            if not perspective_key:
+                raise SystemExit("Perspective enabled but no key provided (set PERSPECTIVE_API_KEY or pass --perspective-key)")
+            classifiers.append(
+                (
+                    "Perspective API",
+                    PerspectiveAPI(
+                        api_key=perspective_key,
+                        mode="paper_table4",  # keeps behavior consistent with paper
+                        paper_threshold=args.perspective_threshold,
+                        paper_chunk_chars=500,
+                    ),
+                )
             )
+
+        # Llama Guard variants are processed sequentially below to avoid OOM
+        # (loading 3 copies of 8B model would exceed A100 40GB memory)
+        llama_guard_modes: List[Tuple[str, str]] = []
+        if "llama_guard" in args.baselines:
+            llama_guard_modes.append(("Llama Guard", "focused"))
+        if "llama_guard_zero_shot" in args.baselines:
+            llama_guard_modes.append(("Llama Guard Zero Shot", "zero_shot"))
+        if "llama_guard_few_shot" in args.baselines:
+            llama_guard_modes.append(("Llama Guard Few Shot", "few_shot"))
+
+        if "ttp" in args.baselines:
+            openai_key = args.openai_key or os.environ.get("OPENAI_API_KEY")
+            if not openai_key:
+                raise SystemExit("TTP enabled but no OpenAI key provided (set OPENAI_API_KEY or pass --openai-key)")
+            fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
+            classifiers.append(("TTP", OpenAITTPClient(api_key=openai_key, model="gpt-4o", fail_open=fail_open)))
+
+        if "ttp_openrouter" in args.baselines:
+            key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
+            if not key:
+                raise SystemExit("TTP (OpenRouter) enabled but no OpenRouter key provided (set OPENROUTER_API_KEY or pass --openrouter-key)")
+            fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
+            classifiers.append(
+                (
+                    f"TTP (OpenRouter: {args.openrouter_model})",
+                    OpenRouterTTPClient(
+                        api_key=key,
+                        model=args.openrouter_model,
+                        referer=args.openrouter_referer,
+                        title=args.openrouter_title,
+                        fail_open=fail_open,
+                    ),
+                )
+            )
+
+        if "harmformer" in args.baselines:
+            classifiers.append(("HarmFormer", HarmFormer(device=args.device)))
+
+        # Process Llama Guard variants sequentially to avoid OOM
+        # (each 8B model uses ~16GB; loading 3 at once would exceed A100 40GB)
+        if llama_guard_modes:
+            import torch  # deferred so --help stays fast
+        for name, mode in llama_guard_modes:
+            try:
+                print(f"Loading {name} (mode={mode})...")
+                clf = LlamaGuard(
+                    model_name=args.llama_guard_model or LlamaGuard.MODEL_NAME,
+                    device=args.device,
+                    prompt_mode=mode,
+                )
+                with maybe_track_emissions(run_name=f"moderation_{name.replace(' ', '_').lower()}"):
+                    results.append(_evaluate_binary(name, clf, samples, invalid_policy=invalid_policy))
+                all_baseline_names.append(name)
+                # Free GPU memory before loading next variant
+                print(f"Cleaning up {name}...")
+                clf.cleanup()
+                del clf
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception as e:
+                print(f"Warning: Skipping {name} (failed): {e}")
+
+        # Process other classifiers (non-Llama Guard)
+        for name, clf in classifiers:
             with maybe_track_emissions(run_name=f"moderation_{name.replace(' ', '_').lower()}"):
                 results.append(_evaluate_binary(name, clf, samples, invalid_policy=invalid_policy))
             all_baseline_names.append(name)
-            # Free GPU memory before loading next variant
-            print(f"Cleaning up {name}...")
-            clf.cleanup()
-            del clf
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception as e:
-            print(f"Warning: Skipping {name} (failed): {e}")
 
-    # Process other classifiers (non-Llama Guard)
-    for name, clf in classifiers:
-        with maybe_track_emissions(run_name=f"moderation_{name.replace(' ', '_').lower()}"):
-            results.append(_evaluate_binary(name, clf, samples, invalid_policy=invalid_policy))
-        all_baseline_names.append(name)
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "run_metadata": gather_run_metadata(repo_root=str(Path(__file__).parent.parent)),
+            "evaluation_config": {
+                "dataset": str(args.data_path),
+                "total_samples": len(samples),
+                "baselines": all_baseline_names,
+                "perspective_threshold": args.perspective_threshold,
+                "device": args.device,
+                "invalid_policy": args.invalid_policy,
+            },
+            "results": results,
+        }
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "run_metadata": gather_run_metadata(repo_root=str(Path(__file__).parent.parent)),
-        "evaluation_config": {
-            "dataset": str(args.data_path),
-            "total_samples": len(samples),
-            "baselines": all_baseline_names,
-            "perspective_threshold": args.perspective_threshold,
-            "device": args.device,
-            "invalid_policy": args.invalid_policy,
-        },
-        "results": results,
-    }
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        wandb_run.update_summary(extract_overall_metrics(payload))
+        wandb_run.update_summary(
+            {
+                "config/total_samples": len(samples),
+                "config/num_baselines": len(all_baseline_names),
+                "output/path": str(out_path),
+            }
+        )
+        wandb_run.log_json_artifact(out_path, name=f"openai_moderation_{out_path.stem}")
+    except Exception:
+        wandb_run.finish(exit_code=1)
+        raise
+    else:
+        wandb_run.finish(exit_code=0)
+
     print(f"Saved: {out_path}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.utils.codecarbon import maybe_track_emissions
+from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 # NOTE: Heavy imports are deferred so `--help` is fast and does not require model downloads.
 PerspectiveAPI: Any = None
@@ -33,6 +35,7 @@ HarmLabel: Any = None
 
 
 def _lazy_imports() -> None:
+    """Import heavy classifier dependencies only when execution starts."""
     global PerspectiveAPI, LlamaGuard, OpenRouterTTPClient
     global OpenAITTPClient
     global HarmFormer
@@ -61,6 +64,7 @@ def _lazy_imports() -> None:
 
 @dataclass(frozen=True)
 class _Counts:
+    """Container for prevalence numerator counts across harm dimensions."""
     overall_toxic: int = 0
     H: int = 0
     IH: int = 0
@@ -70,6 +74,7 @@ class _Counts:
 
 
 def _iter_texts(path: Path, *, fmt: str, text_field: str) -> Iterable[str]:
+    """Yield non-empty text examples from txt/jsonl/tsv inputs."""
     if fmt == "txt":
         with path.open("r", encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -106,6 +111,7 @@ def _iter_texts(path: Path, *, fmt: str, text_field: str) -> Iterable[str]:
 
 
 def _reservoir_sample(texts: Iterable[str], *, k: int, rng: random.Random) -> List[str]:
+    """Return a fixed-size random sample from a stream via reservoir sampling."""
     sample: List[str] = []
     seen = 0
     for t in texts:
@@ -122,6 +128,7 @@ def _reservoir_sample(texts: Iterable[str], *, k: int, rng: random.Random) -> Li
 
 
 def _load_samples(path: Path, *, fmt: str, text_field: str, limit: int, method: str, seed: int) -> List[str]:
+    """Load examples with either first-k or reservoir sampling strategy."""
     it = _iter_texts(path, fmt=fmt, text_field=text_field)
     if limit <= 0:
         return []
@@ -142,6 +149,7 @@ def _load_samples(path: Path, *, fmt: str, text_field: str, limit: int, method: 
 
 
 def _make_classifier(args):
+    """Build the requested toxicity classifier from CLI configuration."""
     _lazy_imports()
     if args.setup == "harmformer":
         return HarmFormer(device=args.device, batch_size=args.batch_size)
@@ -183,6 +191,7 @@ def _make_classifier(args):
 
 
 def _accumulate_counts(label: HarmLabel, counts: _Counts) -> _Counts:
+    """Accumulate per-dimension toxic counts from one HarmLabel prediction."""
     _lazy_imports()
     return _Counts(
         overall_toxic=counts.overall_toxic + (1 if label.is_toxic() else 0),
@@ -195,6 +204,7 @@ def _accumulate_counts(label: HarmLabel, counts: _Counts) -> _Counts:
 
 
 def main() -> int:
+    """Entry point for prevalence estimation and result serialization."""
     p = argparse.ArgumentParser(description="Estimate toxicity prevalence (Table 8-style)")
     p.add_argument("--input-path", required=True, help="Path to dataset file (txt/jsonl/tsv)")
     p.add_argument("--input-format", default="jsonl", choices=["jsonl", "txt", "tsv"])
@@ -234,6 +244,7 @@ def main() -> int:
     p.add_argument("--openrouter-model", default=os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o"))
     p.add_argument("--openrouter-referer", default=os.environ.get("OPENROUTER_REFERER"))
     p.add_argument("--openrouter-title", default=os.environ.get("OPENROUTER_TITLE"))
+    add_wandb_args(p)
 
     args = p.parse_args()
 
@@ -254,22 +265,11 @@ def main() -> int:
     if not texts:
         raise SystemExit("No samples loaded (check --input-format/--text-field and input file contents).")
 
-    clf = _make_classifier(args)
-
-    # Prefer batch prediction when supported.
-    labels: List[HarmLabel]
-    if hasattr(clf, "predict_batch") and callable(getattr(clf, "predict_batch")):
-        labels = clf.predict_batch(texts, show_progress=True)
-    else:
-        labels = [clf.predict(t) for t in texts]
-
-    counts = _Counts()
-    for lab in labels:
-        counts = _accumulate_counts(lab, counts)
-
-    n = len(labels)
-    payload: Dict[str, Any] = {
-        "config": {
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name=f"estimate_toxicity_prevalence_{args.setup}",
+        job_type="evaluation",
+        config={
             "input_path": str(in_path),
             "input_format": args.input_format,
             "text_field": args.text_field,
@@ -277,33 +277,79 @@ def main() -> int:
             "sample_method": args.sample_method,
             "seed": int(args.seed),
             "setup": args.setup,
+            "device": args.device,
+            "batch_size": args.batch_size,
+            "openai_model": args.openai_model,
+            "openrouter_model": args.openrouter_model,
+            "perspective_threshold": args.perspective_threshold,
+            "perspective_chunk_chars": args.perspective_chunk_chars,
         },
-        "counts": {
-            "n": n,
-            "overall_toxic": counts.overall_toxic,
-            "H": counts.H,
-            "IH": counts.IH,
-            "SE": counts.SE,
-            "IL": counts.IL,
-            "SI": counts.SI,
-        },
-        "prevalence": {
-            "overall_toxic": counts.overall_toxic / n,
-            "H": counts.H / n,
-            "IH": counts.IH / n,
-            "SE": counts.SE / n,
-            "IL": counts.IL / n,
-            "SI": counts.SI / n,
-        },
-    }
+        extra_tags=["prevalence", "reproduction"],
+    )
 
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    try:
+        with maybe_track_emissions(run_name=f"toxicity_prevalence_{args.setup}"):
+            clf = _make_classifier(args)
+
+            # Prefer batch prediction when supported.
+            labels: List[HarmLabel]
+            if hasattr(clf, "predict_batch") and callable(clf.predict_batch):
+                labels = clf.predict_batch(texts, show_progress=True)
+            else:
+                labels = [clf.predict(t) for t in texts]
+
+        counts = _Counts()
+        for lab in labels:
+            counts = _accumulate_counts(lab, counts)
+
+        n = len(labels)
+        if n == 0:
+            raise SystemExit("No labels produced.")
+        payload: Dict[str, Any] = {
+            "config": {
+                "input_path": str(in_path),
+                "input_format": args.input_format,
+                "text_field": args.text_field,
+                "limit": int(args.limit),
+                "sample_method": args.sample_method,
+                "seed": int(args.seed),
+                "setup": args.setup,
+            },
+            "counts": {
+                "n": n,
+                "overall_toxic": counts.overall_toxic,
+                "H": counts.H,
+                "IH": counts.IH,
+                "SE": counts.SE,
+                "IL": counts.IL,
+                "SI": counts.SI,
+            },
+            "prevalence": {
+                "overall_toxic": counts.overall_toxic / n,
+                "H": counts.H / n,
+                "IH": counts.IH / n,
+                "SE": counts.SE / n,
+                "IL": counts.IL / n,
+                "SI": counts.SI / n,
+            },
+        }
+
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        wandb_run.update_summary(extract_overall_metrics(payload))
+        wandb_run.update_summary({"output/path": str(out_path)})
+        wandb_run.log_json_artifact(out_path, name=f"toxicity_prevalence_{out_path.stem}")
+    except Exception:
+        wandb_run.finish(exit_code=1)
+        raise
+    else:
+        wandb_run.finish(exit_code=0)
+
     print(f"Saved: {out_path}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

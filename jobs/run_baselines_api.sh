@@ -68,6 +68,10 @@ if [ -z "${PERSPECTIVE_API_KEY:-}" ]; then
   exit 1
 fi
 
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args moderation table7 api slurm
+
 # Run API baselines (Table 7 API rows): Perspective + TTP (OpenRouter) on full dataset
 if python scripts/evaluate_openai_moderation.py \
   --baselines perspective ttp_openrouter \
@@ -75,7 +79,8 @@ if python scripts/evaluate_openai_moderation.py \
   --openrouter-key "$OPENROUTER_API_KEY" \
   --openrouter-model "${OPENROUTER_MODEL:-openai/gpt-4o}" \
   --perspective-key "$PERSPECTIVE_API_KEY" \
-  --output results/moderation/table7_api_results.json; then
+  --output results/moderation/table7_api_results.json \
+  "${WANDB_ARGS[@]}"; then
     echo "Baselines (API) complete!"
     echo "Results saved to: results/moderation/table7_api_results.json"
 else

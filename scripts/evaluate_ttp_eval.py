@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple, Protocol
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 # NOTE: Heavy imports (HF models, API clients) are intentionally deferred so that
 # `python scripts/evaluate_ttp_eval.py --help` is fast and does not require model downloads.
@@ -75,6 +76,7 @@ def _lazy_imports() -> None:
 
 
 def _lazy_imports_for_setups(setups: List[str]) -> None:
+    """Import setup-specific clients only for the selected evaluation modes."""
     global PerspectiveAPI, LlamaGuard, TransformersTTPClient, OpenRouterTTPClient
     global OpenAITTPClient, GeminiTTPEvaluator
 
@@ -130,6 +132,8 @@ def _toxic_label() -> HarmLabel:
 
 
 class Predictor(Protocol):
+    """Minimal prediction interface shared by all evaluator backends."""
+
     def predict(self, text: str) -> HarmLabel:
         ...
 
@@ -142,6 +146,7 @@ def _evaluate_setup(
     *,
     invalid_policy: str,
 ) -> Dict[str, Any]:
+    """Evaluate one classifier setup and return standardized metrics payload."""
     _lazy_imports()
     preds: List[HarmLabel] = []
     gts: List[HarmLabel] = []
@@ -186,6 +191,7 @@ def _evaluate_setup(
 
 
 def main() -> int:
+    """Run the unified TTP-Eval benchmark across the requested setups."""
     p = argparse.ArgumentParser(description="Unified evaluator for TTP-Eval")
     p.add_argument("--data-path", default="data/TTP-Eval/TTPEval.tsv")
     p.add_argument("--limit", type=int)
@@ -249,6 +255,7 @@ def main() -> int:
     p.add_argument("--local-model", action="append", default=[], help="HF model id for local_ttp (repeatable)")
     p.add_argument("--dtype", default="auto", choices=["auto", "float16", "bfloat16"])
     p.add_argument("--quantization", default="none", choices=["none", "8bit", "4bit"])
+    add_wandb_args(p)
 
     args = p.parse_args()
 
@@ -261,140 +268,180 @@ def main() -> int:
     if args.limit:
         samples = samples[: args.limit]
 
-    setups: List[Tuple[str, Any]] = []
+    results: List[Dict[str, Any]] = []
+    invalid_policy = args.invalid_policy or "exclude"
 
-    if "perspective" in args.setups:
-        perspective_key = args.perspective_key or os.environ.get("PERSPECTIVE_API_KEY")
-        if not perspective_key and os.environ.get("ENABLE_PERSPECTIVE_WITH_GEMINI_KEY") == "1":
-            perspective_key = os.environ.get("GEMINI_API_KEY")
-        if not perspective_key:
-            raise SystemExit("Perspective setup selected but no key provided.")
-        setups.append(
-            (
-                "Perspective API",
-                PerspectiveAPI(
-                    api_key=perspective_key,
-                    mode="paper_table4",
-                    paper_threshold=args.perspective_threshold,
-                    paper_chunk_chars=args.perspective_chunk_chars,
-                ),
-            )
-        )
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name="evaluate_ttp_eval",
+        job_type="evaluation",
+        config={
+            "data_path": args.data_path,
+            "dimension": args.dimension,
+            "setups": args.setups,
+            "device": args.device,
+            "invalid_policy": args.invalid_policy or "exclude",
+            "lang_filter": args.lang,
+            "include_unknown_lang": args.include_unknown_lang,
+            "local_models": args.local_model,
+            "dtype": args.dtype,
+            "quantization": args.quantization,
+            "openai_model": args.openai_model,
+            "openrouter_model": args.openrouter_model,
+            "gemini_model": args.gemini_model,
+        },
+        extra_tags=["ttp-eval", "reproduction"],
+    )
 
-    if "harmformer" in args.setups:
-        setups.append(("HarmFormer", HarmFormer(device=args.device)))
+    try:
+        setups: List[Tuple[str, Any]] = []
 
-    if "llama_guard" in args.setups:
-        setups.append(("Llama Guard", LlamaGuard(device=args.device)))
-
-    if "openai_ttp" in args.setups:
-        key = args.openai_key or os.environ.get("OPENAI_API_KEY")
-        if not key:
-            raise SystemExit("openai_ttp selected but no OPENAI_API_KEY/--openai-key provided.")
-        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
-        setups.append(
-            (
-                f"TTP ({args.openai_model})",
-                OpenAITTPClient(
-                    api_key=key,
-                    model=args.openai_model,
-                    prompt_path=args.prompt_path,
-                    fail_open=fail_open,
-                ),
-            )
-        )
-
-    if "openrouter_ttp" in args.setups:
-        key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
-        if not key:
-            raise SystemExit("openrouter_ttp selected but no OPENROUTER_API_KEY/--openrouter-key provided.")
-        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
-        setups.append(
-            (
-                f"TTP (OpenRouter: {args.openrouter_model})",
-                OpenRouterTTPClient(
-                    api_key=key,
-                    model=args.openrouter_model,
-                    prompt_path=args.prompt_path,
-                    referer=args.openrouter_referer,
-                    title=args.openrouter_title,
-                    fail_open=fail_open,
-                ),
-            )
-        )
-
-    if "gemini_ttp" in args.setups:
-        key = args.gemini_key or os.environ.get("GEMINI_API_KEY")
-        if not key:
-            raise SystemExit("gemini_ttp selected but no GEMINI_API_KEY/--gemini-key provided.")
-        setups.append(
-            (
-                f"TTP (Gemini: {args.gemini_model})",
-                GeminiTTPEvaluator(api_key=key, model=args.gemini_model, prompt_path=args.prompt_path),
-            )
-        )
-
-    if "local_ttp" in args.setups:
-        if not args.local_model:
-            raise SystemExit("local_ttp selected but no --local-model provided.")
-        for mid in args.local_model:
+        if "perspective" in args.setups:
+            perspective_key = args.perspective_key or os.environ.get("PERSPECTIVE_API_KEY")
+            if not perspective_key and os.environ.get("ENABLE_PERSPECTIVE_WITH_GEMINI_KEY") == "1":
+                perspective_key = os.environ.get("GEMINI_API_KEY")
+            if not perspective_key:
+                raise SystemExit("Perspective setup selected but no key provided.")
             setups.append(
                 (
-                    f"TTP (Local: {mid})",
-                    TransformersTTPClient(
-                        mid,
-                        device=args.device,
-                        dtype=args.dtype,
-                        quantization=args.quantization,
-                        prompt_path=args.prompt_path,
+                    "Perspective API",
+                    PerspectiveAPI(
+                        api_key=perspective_key,
+                        mode="paper_table4",
+                        paper_threshold=args.perspective_threshold,
+                        paper_chunk_chars=args.perspective_chunk_chars,
                     ),
                 )
             )
 
-    results: List[Dict[str, Any]] = []
-    invalid_policy = args.invalid_policy or "exclude"
-    for name, clf in setups:
-        with maybe_track_emissions(run_name=f"ttp_eval_{name.replace(' ', '_').lower()}"):
-            results.append(
-                _evaluate_setup(
-                    name,
-                    clf,
-                    samples,
-                    dimension=args.dimension,
-                    invalid_policy=invalid_policy,
+        if "harmformer" in args.setups:
+            setups.append(("HarmFormer", HarmFormer(device=args.device)))
+
+        if "llama_guard" in args.setups:
+            setups.append(("Llama Guard", LlamaGuard(device=args.device)))
+
+        if "openai_ttp" in args.setups:
+            key = args.openai_key or os.environ.get("OPENAI_API_KEY")
+            if not key:
+                raise SystemExit("openai_ttp selected but no OPENAI_API_KEY/--openai-key provided.")
+            fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
+            setups.append(
+                (
+                    f"TTP ({args.openai_model})",
+                    OpenAITTPClient(
+                        api_key=key,
+                        model=args.openai_model,
+                        prompt_path=args.prompt_path,
+                        fail_open=fail_open,
+                    ),
                 )
             )
 
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    payload: Dict[str, Any] = {
-        "run_metadata": gather_run_metadata(repo_root=str(Path(__file__).parent.parent)),
-        "evaluation_config": {
-            "dataset": args.data_path,
-            "total_samples": len(samples),
-            "dimension": args.dimension,
-            "lang_filter": args.lang,
-            "include_unknown_lang": args.include_unknown_lang,
-            "setups": [n for n, _ in setups],
-            "device": args.device,
-            "openai_model": args.openai_model,
-            "openrouter_model": args.openrouter_model,
-            "gemini_model": args.gemini_model,
-            "prompt_path": args.prompt_path,
-            "perspective_threshold": args.perspective_threshold,
-            "perspective_chunk_chars": args.perspective_chunk_chars,
-            "local_models": args.local_model,
-            "dtype": args.dtype,
-            "quantization": args.quantization,
-            "invalid_policy": args.invalid_policy,
-        },
-        "results": results,
-    }
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        if "openrouter_ttp" in args.setups:
+            key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
+            if not key:
+                raise SystemExit("openrouter_ttp selected but no OPENROUTER_API_KEY/--openrouter-key provided.")
+            fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
+            setups.append(
+                (
+                    f"TTP (OpenRouter: {args.openrouter_model})",
+                    OpenRouterTTPClient(
+                        api_key=key,
+                        model=args.openrouter_model,
+                        prompt_path=args.prompt_path,
+                        referer=args.openrouter_referer,
+                        title=args.openrouter_title,
+                        fail_open=fail_open,
+                    ),
+                )
+            )
+
+        if "gemini_ttp" in args.setups:
+            key = args.gemini_key or os.environ.get("GEMINI_API_KEY")
+            if not key:
+                raise SystemExit("gemini_ttp selected but no GEMINI_API_KEY/--gemini-key provided.")
+            setups.append(
+                (
+                    f"TTP (Gemini: {args.gemini_model})",
+                    GeminiTTPEvaluator(api_key=key, model=args.gemini_model, prompt_path=args.prompt_path),
+                )
+            )
+
+        if "local_ttp" in args.setups:
+            if not args.local_model:
+                raise SystemExit("local_ttp selected but no --local-model provided.")
+            for mid in args.local_model:
+                setups.append(
+                    (
+                        f"TTP (Local: {mid})",
+                        TransformersTTPClient(
+                            mid,
+                            device=args.device,
+                            dtype=args.dtype,
+                            quantization=args.quantization,
+                            prompt_path=args.prompt_path,
+                        ),
+                    )
+                )
+
+        for name, clf in setups:
+            with maybe_track_emissions(run_name=f"ttp_eval_{name.replace(' ', '_').lower()}"):
+                results.append(
+                    _evaluate_setup(
+                        name,
+                        clf,
+                        samples,
+                        dimension=args.dimension,
+                        invalid_policy=invalid_policy,
+                    )
+                )
+
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        payload: Dict[str, Any] = {
+            "run_metadata": gather_run_metadata(repo_root=str(Path(__file__).parent.parent)),
+            "evaluation_config": {
+                "dataset": args.data_path,
+                "total_samples": len(samples),
+                "dimension": args.dimension,
+                "lang_filter": args.lang,
+                "include_unknown_lang": args.include_unknown_lang,
+                "setups": [n for n, _ in setups],
+                "device": args.device,
+                "openai_model": args.openai_model,
+                "openrouter_model": args.openrouter_model,
+                "gemini_model": args.gemini_model,
+                "prompt_path": args.prompt_path,
+                "perspective_threshold": args.perspective_threshold,
+                "perspective_chunk_chars": args.perspective_chunk_chars,
+                "local_models": args.local_model,
+                "dtype": args.dtype,
+                "quantization": args.quantization,
+                "invalid_policy": args.invalid_policy,
+            },
+            "results": results,
+        }
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        wandb_run.update_summary(extract_overall_metrics(payload))
+        wandb_run.update_summary(
+            {
+                "config/total_samples": len(samples),
+                "config/num_setups": len(setups),
+                "output/path": str(out_path),
+            }
+        )
+        wandb_run.log_json_artifact(out_path, name=f"ttp_eval_{out_path.stem}")
+    except Exception:
+        wandb_run.finish(exit_code=1)
+        raise
+    else:
+        wandb_run.finish(exit_code=0)
+
     print(f"Saved: {out_path}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

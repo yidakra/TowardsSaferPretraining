@@ -61,6 +61,10 @@ mkdir -p results/codecarbon
 export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
 export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args ttp_eval table4 local slurm
+
 # Model configuration (can be overridden via environment)
 GEMMA_MODEL="${GEMMA_2_27B_MODEL_ID:-google/gemma-2-27b-it}"
 QUANTIZATION="${TTP_LOCAL_QUANTIZATION:-none}"
@@ -84,7 +88,8 @@ if python scripts/evaluate_ttp_eval.py \
   --dtype bfloat16 \
   --quantization "$QUANTIZATION" \
   --dimension toxic \
-  --output results/ttp_eval_baselines/table4_local_ttp_gemma.json; then
+  --output results/ttp_eval_baselines/table4_local_ttp_gemma.json \
+  "${WANDB_ARGS[@]}"; then
     echo "Table 4 local LLM evaluation complete (Gemma)!"
     echo "Results saved to: results/ttp_eval_baselines/table4_local_ttp_gemma.json"
 else
@@ -102,7 +107,8 @@ if [ -n "$LLAMA_MODEL" ]; then
     --dtype bfloat16 \
     --quantization "$QUANTIZATION_LARGE" \
     --dimension toxic \
-    --output results/ttp_eval_baselines/table4_local_ttp_llama32b.json; then
+    --output results/ttp_eval_baselines/table4_local_ttp_llama32b.json \
+    "${WANDB_ARGS[@]}"; then
       echo "Table 4 local LLM evaluation complete (LLaMa 32B)!"
       echo "Results saved to: results/ttp_eval_baselines/table4_local_ttp_llama32b.json"
   else

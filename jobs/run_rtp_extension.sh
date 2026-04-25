@@ -32,10 +32,15 @@ export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
 LIMIT="${LIMIT:-}"
 
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args rtp extension slurm
+
 CMD=(python scripts/evaluate_rtp_continuations.py \
   --device cuda \
   --batch-size 32 \
-  --output results/rtp/rtp_continuations_harmformer_full.json)
+  --output results/rtp/rtp_continuations_harmformer_full.json \
+  "${WANDB_ARGS[@]}")
 
 if [[ -n "$LIMIT" ]]; then
   CMD+=(--limit "$LIMIT")

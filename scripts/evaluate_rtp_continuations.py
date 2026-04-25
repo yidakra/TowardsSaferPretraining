@@ -23,10 +23,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.models import HarmFormer
+from src.utils.codecarbon import maybe_track_emissions
 from src.utils.repro_metadata import gather_run_metadata
+from src.utils.wandb import add_wandb_args, init_wandb_from_args, extract_overall_metrics
 
 
 def _get_nested_text(row: Mapping[str, Any], key: str) -> str:
+    """Extract a nested `{key: {text: ...}}` field as a plain string."""
     value = row.get(key)
     if isinstance(value, Mapping):
         value_map = cast(Mapping[str, Any], value)
@@ -57,6 +60,7 @@ def _get_prompt_toxicity(row: Mapping[str, Any]) -> Optional[float]:
 
 
 def _bucket(prompt_tox: Optional[float], *, neutral_max: float, provocative_min: float) -> Optional[str]:
+    """Map a prompt toxicity score into neutral/passive/provocative buckets."""
     if prompt_tox is None:
         return None
     if prompt_tox < neutral_max:
@@ -67,6 +71,7 @@ def _bucket(prompt_tox: Optional[float], *, neutral_max: float, provocative_min:
 
 
 def _iter_rtp(*, streaming: bool) -> Iterable[Mapping[str, Any]]:
+    """Stream RTP training rows from the Hugging Face dataset loader."""
     # Lazy import so `--help` works even if deps aren't installed yet.
     from datasets import load_dataset  # type: ignore
 
@@ -77,6 +82,7 @@ def _iter_rtp(*, streaming: bool) -> Iterable[Mapping[str, Any]]:
 
 
 def main() -> int:
+    """Run RTP continuation leakage evaluation and write a JSON report."""
     p = argparse.ArgumentParser(
         description="Compute RTP leakage rates from dataset continuations using HarmFormer"
     )
@@ -129,130 +135,161 @@ def main() -> int:
         default="results/rtp/rtp_continuations_harmformer.json",
         help="Output JSON path (results/ is not versioned)",
     )
+    add_wandb_args(p)
     args = p.parse_args()
 
-    judge: HarmFormer | None
-    if args.dry_run:
-        judge = None
-    else:
-        judge = HarmFormer(device=args.device, batch_size=args.batch_size)
+    wandb_run = init_wandb_from_args(
+        args,
+        run_name="evaluate_rtp_continuations",
+        job_type="evaluation",
+        config={
+            "device": args.device,
+            "batch_size": args.batch_size,
+            "limit": args.limit,
+            "streaming": args.streaming,
+            "judge_text": args.judge_text,
+            "neutral_max": args.neutral_max,
+            "provocative_min": args.provocative_min,
+            "dry_run": bool(args.dry_run),
+        },
+        extra_tags=["rtp", "harmformer", "reproduction"],
+    )
 
-    totals: Dict[str, int] = {"neutral": 0, "passive": 0, "provocative": 0}
-    leaked_counts: Dict[str, int] = {"neutral": 0, "passive": 0, "provocative": 0}
-    error_count = 0
-    skipped_missing_prompt_toxicity = 0
-    skipped_empty_text = 0
+    try:
+        with maybe_track_emissions(run_name="rtp_continuations_harmformer"):
+            judge: HarmFormer | None
+            if args.dry_run:
+                judge = None
+            else:
+                judge = HarmFormer(device=args.device, batch_size=args.batch_size)
 
-    batch_texts: List[str] = []
-    batch_types: List[str] = []
-    processed = 0
+            totals: Dict[str, int] = {"neutral": 0, "passive": 0, "provocative": 0}
+            leaked_counts: Dict[str, int] = {"neutral": 0, "passive": 0, "provocative": 0}
+            error_count = 0
+            skipped_missing_prompt_toxicity = 0
+            skipped_empty_text = 0
 
-    def flush() -> None:
-        nonlocal processed, error_count
-        if not batch_texts:
-            return
-        if judge is None:
-            # Shouldn't happen (we avoid batching in dry-run), but keep behavior safe.
-            for bucket in batch_types:
-                totals[bucket] += 1
-            processed += len(batch_texts)
-            batch_texts.clear()
-            batch_types.clear()
-            return
-        try:
-            labels = judge.predict_batch(batch_texts, show_progress=False)
-            for bucket, lab in zip(batch_types, labels, strict=True):
-                totals[bucket] += 1
-                if lab.is_toxic():
-                    leaked_counts[bucket] += 1
-            processed += len(batch_texts)
-        except Exception:
-            error_count += len(batch_texts)
-        finally:
-            batch_texts.clear()
-            batch_types.clear()
+            batch_texts: List[str] = []
+            batch_types: List[str] = []
+            processed = 0
 
-    for idx, row in enumerate(_iter_rtp(streaming=args.streaming)):
-        if args.limit is not None and idx >= args.limit:
-            break
+            def flush() -> None:
+                """Score one inference batch and update leakage counters."""
+                nonlocal processed, error_count
+                if not batch_texts:
+                    return
+                if judge is None:
+                    # Shouldn't happen (we avoid batching in dry-run), but keep behavior safe.
+                    for bucket in batch_types:
+                        totals[bucket] += 1
+                    processed += len(batch_texts)
+                    batch_texts.clear()
+                    batch_types.clear()
+                    return
+                try:
+                    labels = judge.predict_batch(batch_texts, show_progress=False)
+                    for bucket, lab in zip(batch_types, labels, strict=True):
+                        totals[bucket] += 1
+                        if lab.is_toxic():
+                            leaked_counts[bucket] += 1
+                    processed += len(batch_texts)
+                except Exception:
+                    error_count += len(batch_texts)
+                finally:
+                    batch_texts.clear()
+                    batch_types.clear()
 
-        prompt_tox = _get_prompt_toxicity(row)
-        bucket = _bucket(prompt_tox, neutral_max=args.neutral_max, provocative_min=args.provocative_min)
-        if bucket is None:
-            skipped_missing_prompt_toxicity += 1
-            continue
+            for idx, row in enumerate(_iter_rtp(streaming=args.streaming)):
+                if args.limit is not None and idx >= args.limit:
+                    break
 
-        prompt_text = _get_nested_text(row, "prompt")
-        continuation_text = _get_nested_text(row, "continuation")
+                prompt_tox = _get_prompt_toxicity(row)
+                bucket = _bucket(prompt_tox, neutral_max=args.neutral_max, provocative_min=args.provocative_min)
+                if bucket is None:
+                    skipped_missing_prompt_toxicity += 1
+                    continue
 
-        if args.judge_text == "continuation":
-            text = continuation_text.strip()
-        else:
-            text = (prompt_text + " " + continuation_text).strip()
+                prompt_text = _get_nested_text(row, "prompt")
+                continuation_text = _get_nested_text(row, "continuation")
 
-        if args.max_chars is not None:
-            text = text[: args.max_chars]
+                if args.judge_text == "continuation":
+                    text = continuation_text.strip()
+                else:
+                    text = (prompt_text + " " + continuation_text).strip()
 
-        if not text:
-            skipped_empty_text += 1
-            continue
+                if args.max_chars is not None:
+                    text = text[: args.max_chars]
 
-        if args.dry_run:
-            totals[bucket] += 1
-            processed += 1
-            continue
+                if not text:
+                    skipped_empty_text += 1
+                    continue
 
-        batch_texts.append(text)
-        batch_types.append(bucket)
+                if args.dry_run:
+                    totals[bucket] += 1
+                    processed += 1
+                    continue
 
-        if len(batch_texts) >= args.batch_size:
+                batch_texts.append(text)
+                batch_types.append(bucket)
+
+                if len(batch_texts) >= args.batch_size:
+                    flush()
+
+                if (idx + 1) % 5000 == 0:
+                    print(f"Seen={idx + 1}, judged={processed}, totals={sum(totals.values())}")
+
             flush()
 
-        if (idx + 1) % 5000 == 0:
-            print(f"Seen={idx + 1}, judged={processed}, totals={sum(totals.values())}")
+        total_samples = sum(totals.values())
+        overall_leaked = sum(leaked_counts.values())
+        leakage_percentages: Dict[str, float] = {
+            k: (leaked_counts[k] / totals[k] * 100.0) if totals[k] else 0.0 for k in totals
+        }
+        leakage_percentages["overall"] = (overall_leaked / total_samples * 100.0) if total_samples else 0.0
 
-    flush()
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    total_samples = sum(totals.values())
-    overall_leaked = sum(leaked_counts.values())
-    leakage_percentages: Dict[str, float] = {
-        k: (leaked_counts[k] / totals[k] * 100.0) if totals[k] else 0.0 for k in totals
-    }
-    leakage_percentages["overall"] = (overall_leaked / total_samples * 100.0) if total_samples else 0.0
-
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    payload: Dict[str, Any] = {
-        "evaluation": {
-            "model_name": "HarmFormer",
-            "dataset": "allenai/real-toxicity-prompts",
-            "judge_text": args.judge_text,
-            "thresholds": {"neutral_max": args.neutral_max, "provocative_min": args.provocative_min},
-            "total_samples": total_samples,
-            "skipped_missing_prompt_toxicity": skipped_missing_prompt_toxicity,
-            "skipped_empty_text": skipped_empty_text,
-            "error_count": error_count,
-            "dry_run": bool(args.dry_run),
-            "leakage": {
-                "neutral": {"total": totals["neutral"], "leaked": leaked_counts["neutral"]},
-                "passive": {"total": totals["passive"], "leaked": leaked_counts["passive"]},
-                "provocative": {"total": totals["provocative"], "leaked": leaked_counts["provocative"]},
+        payload: Dict[str, Any] = {
+            "evaluation": {
+                "model_name": "HarmFormer",
+                "dataset": "allenai/real-toxicity-prompts",
+                "judge_text": args.judge_text,
+                "thresholds": {"neutral_max": args.neutral_max, "provocative_min": args.provocative_min},
+                "total_samples": total_samples,
+                "skipped_missing_prompt_toxicity": skipped_missing_prompt_toxicity,
+                "skipped_empty_text": skipped_empty_text,
+                "error_count": error_count,
+                "dry_run": bool(args.dry_run),
+                "leakage": {
+                    "neutral": {"total": totals["neutral"], "leaked": leaked_counts["neutral"]},
+                    "passive": {"total": totals["passive"], "leaked": leaked_counts["passive"]},
+                    "provocative": {"total": totals["provocative"], "leaked": leaked_counts["provocative"]},
+                },
+                "leakage_percentages": leakage_percentages,
             },
-            "leakage_percentages": leakage_percentages,
-        },
-        "config": {
-            "streaming": args.streaming,
-            "limit": args.limit,
-            "batch_size": args.batch_size,
-            "device": args.device,
-            "max_chars": args.max_chars,
-            "dry_run": bool(args.dry_run),
-        },
-        "run_metadata": gather_run_metadata(repo_root=str(ROOT)),
-    }
+            "config": {
+                "streaming": args.streaming,
+                "limit": args.limit,
+                "batch_size": args.batch_size,
+                "device": args.device,
+                "max_chars": args.max_chars,
+                "dry_run": bool(args.dry_run),
+            },
+            "run_metadata": gather_run_metadata(repo_root=str(ROOT)),
+        }
 
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        wandb_run.update_summary(extract_overall_metrics(payload))
+        wandb_run.update_summary({"output/path": str(out_path)})
+        wandb_run.log_json_artifact(out_path, name=f"rtp_continuations_{out_path.stem}")
+    except Exception:
+        wandb_run.finish(exit_code=1)
+        raise
+    else:
+        wandb_run.finish(exit_code=0)
+
     print(f"Saved: {out_path}")
     return 0
 

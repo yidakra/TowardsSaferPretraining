@@ -22,6 +22,13 @@ cd "$PROJECT_DIR"
 
 source venv/bin/activate
 
+# Load environment variables from .env file (absolute path for Slurm)
+if [[ -f "$PROJECT_DIR/.env" ]]; then
+  set -a; source "$PROJECT_DIR/.env" 2>/dev/null || true; set +a
+else
+  set -a; source "$HOME/TowardsSaferPretraining/.env" 2>/dev/null || true; set +a
+fi
+
 # Optional CodeCarbon tracking
 mkdir -p results/codecarbon
 export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
@@ -34,6 +41,10 @@ TGT_LANGS="${TGT_LANGS:-spa_Latn fra_Latn deu_Latn arb_Arab hin_Deva zho_Hans}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-256}"
 
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args translation multilingual slurm
+
 python scripts/translate_ttp_eval.py \
   --input data/TTP-Eval/TTPEval.tsv \
   --model-id "$MODEL_ID" \
@@ -41,4 +52,5 @@ python scripts/translate_ttp_eval.py \
   --tgt-langs $TGT_LANGS \
   --device cuda \
   --batch-size "$BATCH_SIZE" \
-  --max-new-tokens "$MAX_NEW_TOKENS"
+  --max-new-tokens "$MAX_NEW_TOKENS" \
+  "${WANDB_ARGS[@]}"

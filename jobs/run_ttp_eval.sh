@@ -68,6 +68,10 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
   exit 1
 fi
 
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args ttp_eval table3 slurm
+
 # Run TTP evaluation on full TTP-Eval dataset (Table 3)
 if python scripts/evaluate_ttp_eval.py \
   --data-path data/TTP-Eval/TTPEval.tsv \
@@ -75,7 +79,8 @@ if python scripts/evaluate_ttp_eval.py \
   --openrouter-key "$OPENROUTER_API_KEY" \
   --openrouter-model "${OPENROUTER_MODEL:-openai/gpt-4o}" \
   --dimension toxic \
-  --output results/ttp_eval/ttp_results.json; then
+  --output results/ttp_eval/ttp_results.json \
+  "${WANDB_ARGS[@]}"; then
     echo "TTP Evaluation Complete!"
     echo "Results saved to: results/ttp_eval/ttp_results.json"
 else

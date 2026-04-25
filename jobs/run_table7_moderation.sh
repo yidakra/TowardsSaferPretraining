@@ -33,7 +33,11 @@ mkdir -p results/moderation results/codecarbon
 export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
 export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args moderation table7 slurm
+
 python scripts/evaluate_openai_moderation.py \
   --output "results/moderation/table7_results.json" \
-  --device cuda
-
+  --device cuda \
+  "${WANDB_ARGS[@]}"
