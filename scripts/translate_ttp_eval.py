@@ -129,7 +129,9 @@ def main() -> int:
 
         for tgt_lang in args.tgt_langs:
             forced_bos_token_id = tokenizer.convert_tokens_to_ids(tgt_lang)
-            if forced_bos_token_id is None:
+            # HF tokenizers map unknown tokens to unk_token_id rather than None,
+            # so a typo'd NLLB code would silently produce garbage without this check.
+            if forced_bos_token_id is None or forced_bos_token_id == tokenizer.unk_token_id:
                 raise ValueError(f"Unknown tgt lang for tokenizer: {tgt_lang}")
 
             translated: List[str] = []
