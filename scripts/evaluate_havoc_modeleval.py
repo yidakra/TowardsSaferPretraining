@@ -142,9 +142,8 @@ def main() -> int:
 
         out_path = Path(args.output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w") as f:
-            output_data["run_metadata"] = gather_run_metadata(repo_root=str(Path(__file__).parent.parent))
-            json.dump(output_data, f, indent=2)
+        output_data["run_metadata"] = gather_run_metadata(repo_root=str(Path(__file__).parent.parent))
+        out_path.write_text(json.dumps(output_data, indent=2), encoding="utf-8")
 
         wandb_run.update_summary(extract_overall_metrics(output_data))
         wandb_run.update_summary({"output/path": str(out_path)})

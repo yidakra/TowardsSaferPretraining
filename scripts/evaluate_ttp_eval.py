@@ -268,96 +268,6 @@ def main() -> int:
     if args.limit:
         samples = samples[: args.limit]
 
-    setups: List[Tuple[str, Any]] = []
-
-    if "perspective" in args.setups:
-        perspective_key = args.perspective_key or os.environ.get("PERSPECTIVE_API_KEY")
-        if not perspective_key and os.environ.get("ENABLE_PERSPECTIVE_WITH_GEMINI_KEY") == "1":
-            perspective_key = os.environ.get("GEMINI_API_KEY")
-        if not perspective_key:
-            raise SystemExit("Perspective setup selected but no key provided.")
-        setups.append(
-            (
-                "Perspective API",
-                PerspectiveAPI(
-                    api_key=perspective_key,
-                    mode="paper_table4",
-                    paper_threshold=args.perspective_threshold,
-                    paper_chunk_chars=args.perspective_chunk_chars,
-                ),
-            )
-        )
-
-    if "harmformer" in args.setups:
-        setups.append(("HarmFormer", HarmFormer(device=args.device)))
-
-    if "llama_guard" in args.setups:
-        setups.append(("Llama Guard", LlamaGuard(device=args.device)))
-
-    if "openai_ttp" in args.setups:
-        key = args.openai_key or os.environ.get("OPENAI_API_KEY")
-        if not key:
-            raise SystemExit("openai_ttp selected but no OPENAI_API_KEY/--openai-key provided.")
-        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
-        setups.append(
-            (
-                f"TTP ({args.openai_model})",
-                OpenAITTPClient(
-                    api_key=key,
-                    model=args.openai_model,
-                    prompt_path=args.prompt_path,
-                    fail_open=fail_open,
-                ),
-            )
-        )
-
-    if "openrouter_ttp" in args.setups:
-        key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
-        if not key:
-            raise SystemExit("openrouter_ttp selected but no OPENROUTER_API_KEY/--openrouter-key provided.")
-        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
-        setups.append(
-            (
-                f"TTP (OpenRouter: {args.openrouter_model})",
-                OpenRouterTTPClient(
-                    api_key=key,
-                    model=args.openrouter_model,
-                    prompt_path=args.prompt_path,
-                    referer=args.openrouter_referer,
-                    title=args.openrouter_title,
-                    fail_open=fail_open,
-                ),
-            )
-        )
-
-    if "gemini_ttp" in args.setups:
-        key = args.gemini_key or os.environ.get("GEMINI_API_KEY")
-        if not key:
-            raise SystemExit("gemini_ttp selected but no GEMINI_API_KEY/--gemini-key provided.")
-        setups.append(
-            (
-                f"TTP (Gemini: {args.gemini_model})",
-                GeminiTTPEvaluator(api_key=key, model=args.gemini_model, prompt_path=args.prompt_path),
-            )
-        )
-
-    if "local_ttp" in args.setups:
-        if not args.local_model:
-            raise SystemExit("local_ttp selected but no --local-model provided.")
-        for mid in args.local_model:
-            setups.append(
-                (
-                    f"TTP (Local: {mid})",
-                    TransformersTTPClient(
-                        mid,
-                        device=args.device,
-                        dtype=args.dtype,
-                        quantization=args.quantization,
-                        prompt_path=args.prompt_path,
-                    ),
-                )
-            )
-
     results: List[Dict[str, Any]] = []
     invalid_policy = args.invalid_policy or "exclude"
 
@@ -384,6 +294,96 @@ def main() -> int:
     )
 
     try:
+        setups: List[Tuple[str, Any]] = []
+
+        if "perspective" in args.setups:
+            perspective_key = args.perspective_key or os.environ.get("PERSPECTIVE_API_KEY")
+            if not perspective_key and os.environ.get("ENABLE_PERSPECTIVE_WITH_GEMINI_KEY") == "1":
+                perspective_key = os.environ.get("GEMINI_API_KEY")
+            if not perspective_key:
+                raise SystemExit("Perspective setup selected but no key provided.")
+            setups.append(
+                (
+                    "Perspective API",
+                    PerspectiveAPI(
+                        api_key=perspective_key,
+                        mode="paper_table4",
+                        paper_threshold=args.perspective_threshold,
+                        paper_chunk_chars=args.perspective_chunk_chars,
+                    ),
+                )
+            )
+
+        if "harmformer" in args.setups:
+            setups.append(("HarmFormer", HarmFormer(device=args.device)))
+
+        if "llama_guard" in args.setups:
+            setups.append(("Llama Guard", LlamaGuard(device=args.device)))
+
+        if "openai_ttp" in args.setups:
+            key = args.openai_key or os.environ.get("OPENAI_API_KEY")
+            if not key:
+                raise SystemExit("openai_ttp selected but no OPENAI_API_KEY/--openai-key provided.")
+            fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
+            setups.append(
+                (
+                    f"TTP ({args.openai_model})",
+                    OpenAITTPClient(
+                        api_key=key,
+                        model=args.openai_model,
+                        prompt_path=args.prompt_path,
+                        fail_open=fail_open,
+                    ),
+                )
+            )
+
+        if "openrouter_ttp" in args.setups:
+            key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
+            if not key:
+                raise SystemExit("openrouter_ttp selected but no OPENROUTER_API_KEY/--openrouter-key provided.")
+            fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
+            setups.append(
+                (
+                    f"TTP (OpenRouter: {args.openrouter_model})",
+                    OpenRouterTTPClient(
+                        api_key=key,
+                        model=args.openrouter_model,
+                        prompt_path=args.prompt_path,
+                        referer=args.openrouter_referer,
+                        title=args.openrouter_title,
+                        fail_open=fail_open,
+                    ),
+                )
+            )
+
+        if "gemini_ttp" in args.setups:
+            key = args.gemini_key or os.environ.get("GEMINI_API_KEY")
+            if not key:
+                raise SystemExit("gemini_ttp selected but no GEMINI_API_KEY/--gemini-key provided.")
+            setups.append(
+                (
+                    f"TTP (Gemini: {args.gemini_model})",
+                    GeminiTTPEvaluator(api_key=key, model=args.gemini_model, prompt_path=args.prompt_path),
+                )
+            )
+
+        if "local_ttp" in args.setups:
+            if not args.local_model:
+                raise SystemExit("local_ttp selected but no --local-model provided.")
+            for mid in args.local_model:
+                setups.append(
+                    (
+                        f"TTP (Local: {mid})",
+                        TransformersTTPClient(
+                            mid,
+                            device=args.device,
+                            dtype=args.dtype,
+                            quantization=args.quantization,
+                            prompt_path=args.prompt_path,
+                        ),
+                    )
+                )
+
         for name, clf in setups:
             with maybe_track_emissions(run_name=f"ttp_eval_{name.replace(' ', '_').lower()}"):
                 results.append(

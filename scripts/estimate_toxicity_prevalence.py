@@ -293,7 +293,7 @@ def main() -> int:
 
             # Prefer batch prediction when supported.
             labels: List[HarmLabel]
-            if hasattr(clf, "predict_batch") and callable(getattr(clf, "predict_batch")):
+            if hasattr(clf, "predict_batch") and callable(clf.predict_batch):
                 labels = clf.predict_batch(texts, show_progress=True)
             else:
                 labels = [clf.predict(t) for t in texts]

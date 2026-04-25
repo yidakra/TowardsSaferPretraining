@@ -127,7 +127,7 @@ def _evaluate_binary(
     metrics = calculate_metrics(predictions=preds, ground_truth=gts, dimension="toxic")
 
     client_stats = None
-    if hasattr(classifier, "get_stats") and callable(getattr(classifier, "get_stats")):
+    if hasattr(classifier, "get_stats") and callable(classifier.get_stats):
         try:
             client_stats = classifier.get_stats()  # type: ignore[attr-defined]
         except Exception:
@@ -214,64 +214,6 @@ def main() -> int:
         non_toxic = len(samples) - toxic
         print(f"Loaded {len(samples)} samples (toxic={toxic}, non_toxic={non_toxic})")
 
-    classifiers: List[Tuple[str, Any]] = []
-
-    if "perspective" in args.baselines:
-        perspective_key = args.perspective_key or os.environ.get("PERSPECTIVE_API_KEY")
-        if not perspective_key and os.environ.get("ENABLE_PERSPECTIVE_WITH_GEMINI_KEY") == "1":
-            perspective_key = os.environ.get("GEMINI_API_KEY")
-        if not perspective_key:
-            raise SystemExit("Perspective enabled but no key provided (set PERSPECTIVE_API_KEY or pass --perspective-key)")
-        classifiers.append(
-            (
-                "Perspective API",
-                PerspectiveAPI(
-                    api_key=perspective_key,
-                    mode="paper_table4",  # keeps behavior consistent with paper
-                    paper_threshold=args.perspective_threshold,
-                    paper_chunk_chars=500,
-                ),
-            )
-        )
-
-    # Llama Guard variants are processed sequentially below to avoid OOM
-    # (loading 3 copies of 8B model would exceed A100 40GB memory)
-    llama_guard_modes: List[Tuple[str, str]] = []
-    if "llama_guard" in args.baselines:
-        llama_guard_modes.append(("Llama Guard", "focused"))
-    if "llama_guard_zero_shot" in args.baselines:
-        llama_guard_modes.append(("Llama Guard Zero Shot", "zero_shot"))
-    if "llama_guard_few_shot" in args.baselines:
-        llama_guard_modes.append(("Llama Guard Few Shot", "few_shot"))
-
-    if "ttp" in args.baselines:
-        openai_key = args.openai_key or os.environ.get("OPENAI_API_KEY")
-        if not openai_key:
-            raise SystemExit("TTP enabled but no OpenAI key provided (set OPENAI_API_KEY or pass --openai-key)")
-        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
-        classifiers.append(("TTP", OpenAITTPClient(api_key=openai_key, model="gpt-4o", fail_open=fail_open)))
-
-    if "ttp_openrouter" in args.baselines:
-        key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
-        if not key:
-            raise SystemExit("TTP (OpenRouter) enabled but no OpenRouter key provided (set OPENROUTER_API_KEY or pass --openrouter-key)")
-        fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
-        classifiers.append(
-            (
-                f"TTP (OpenRouter: {args.openrouter_model})",
-                OpenRouterTTPClient(
-                    api_key=key,
-                    model=args.openrouter_model,
-                    referer=args.openrouter_referer,
-                    title=args.openrouter_title,
-                    fail_open=fail_open,
-                ),
-            )
-        )
-
-    if "harmformer" in args.baselines:
-        classifiers.append(("HarmFormer", HarmFormer(device=args.device)))
-
     results: List[Dict[str, Any]] = []
     all_baseline_names: List[str] = []
 
@@ -294,8 +236,68 @@ def main() -> int:
     )
 
     try:
+        classifiers: List[Tuple[str, Any]] = []
+
+        if "perspective" in args.baselines:
+            perspective_key = args.perspective_key or os.environ.get("PERSPECTIVE_API_KEY")
+            if not perspective_key and os.environ.get("ENABLE_PERSPECTIVE_WITH_GEMINI_KEY") == "1":
+                perspective_key = os.environ.get("GEMINI_API_KEY")
+            if not perspective_key:
+                raise SystemExit("Perspective enabled but no key provided (set PERSPECTIVE_API_KEY or pass --perspective-key)")
+            classifiers.append(
+                (
+                    "Perspective API",
+                    PerspectiveAPI(
+                        api_key=perspective_key,
+                        mode="paper_table4",  # keeps behavior consistent with paper
+                        paper_threshold=args.perspective_threshold,
+                        paper_chunk_chars=500,
+                    ),
+                )
+            )
+
+        # Llama Guard variants are processed sequentially below to avoid OOM
+        # (loading 3 copies of 8B model would exceed A100 40GB memory)
+        llama_guard_modes: List[Tuple[str, str]] = []
+        if "llama_guard" in args.baselines:
+            llama_guard_modes.append(("Llama Guard", "focused"))
+        if "llama_guard_zero_shot" in args.baselines:
+            llama_guard_modes.append(("Llama Guard Zero Shot", "zero_shot"))
+        if "llama_guard_few_shot" in args.baselines:
+            llama_guard_modes.append(("Llama Guard Few Shot", "few_shot"))
+
+        if "ttp" in args.baselines:
+            openai_key = args.openai_key or os.environ.get("OPENAI_API_KEY")
+            if not openai_key:
+                raise SystemExit("TTP enabled but no OpenAI key provided (set OPENAI_API_KEY or pass --openai-key)")
+            fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
+            classifiers.append(("TTP", OpenAITTPClient(api_key=openai_key, model="gpt-4o", fail_open=fail_open)))
+
+        if "ttp_openrouter" in args.baselines:
+            key = args.openrouter_key or os.environ.get("OPENROUTER_API_KEY")
+            if not key:
+                raise SystemExit("TTP (OpenRouter) enabled but no OpenRouter key provided (set OPENROUTER_API_KEY or pass --openrouter-key)")
+            fail_open = True if args.invalid_policy is None else (args.invalid_policy == "non_toxic")
+            classifiers.append(
+                (
+                    f"TTP (OpenRouter: {args.openrouter_model})",
+                    OpenRouterTTPClient(
+                        api_key=key,
+                        model=args.openrouter_model,
+                        referer=args.openrouter_referer,
+                        title=args.openrouter_title,
+                        fail_open=fail_open,
+                    ),
+                )
+            )
+
+        if "harmformer" in args.baselines:
+            classifiers.append(("HarmFormer", HarmFormer(device=args.device)))
+
         # Process Llama Guard variants sequentially to avoid OOM
         # (each 8B model uses ~16GB; loading 3 at once would exceed A100 40GB)
+        if llama_guard_modes:
+            import torch  # deferred so --help stays fast
         for name, mode in llama_guard_modes:
             try:
                 print(f"Loading {name} (mode={mode})...")
@@ -311,7 +313,6 @@ def main() -> int:
                 print(f"Cleaning up {name}...")
                 clf.cleanup()
                 del clf
-                import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             except Exception as e:
