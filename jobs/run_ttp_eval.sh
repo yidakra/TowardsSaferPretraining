@@ -68,14 +68,9 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
   exit 1
 fi
 
-WANDB_ARGS=()
-if [ "${WANDB_ENABLED:-0}" = "1" ]; then
-  WANDB_ARGS+=(--wandb --wandb-project "${WANDB_PROJECT:-TowardsSaferPretraining}")
-  if [ -n "${WANDB_ENTITY:-}" ]; then WANDB_ARGS+=(--wandb-entity "$WANDB_ENTITY"); fi
-  if [ -n "${WANDB_GROUP:-}" ]; then WANDB_ARGS+=(--wandb-group "$WANDB_GROUP"); fi
-  if [ -n "${WANDB_MODE:-}" ]; then WANDB_ARGS+=(--wandb-mode "$WANDB_MODE"); fi
-  WANDB_ARGS+=(--wandb-tags ttp_eval table3 slurm)
-fi
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args ttp_eval table3 slurm
 
 # Run TTP evaluation on full TTP-Eval dataset (Table 3)
 if python scripts/evaluate_ttp_eval.py \

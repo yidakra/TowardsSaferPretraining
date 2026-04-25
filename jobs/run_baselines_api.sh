@@ -68,14 +68,9 @@ if [ -z "${PERSPECTIVE_API_KEY:-}" ]; then
   exit 1
 fi
 
-WANDB_ARGS=()
-if [ "${WANDB_ENABLED:-0}" = "1" ]; then
-  WANDB_ARGS+=(--wandb --wandb-project "${WANDB_PROJECT:-TowardsSaferPretraining}")
-  if [ -n "${WANDB_ENTITY:-}" ]; then WANDB_ARGS+=(--wandb-entity "$WANDB_ENTITY"); fi
-  if [ -n "${WANDB_GROUP:-}" ]; then WANDB_ARGS+=(--wandb-group "$WANDB_GROUP"); fi
-  if [ -n "${WANDB_MODE:-}" ]; then WANDB_ARGS+=(--wandb-mode "$WANDB_MODE"); fi
-  WANDB_ARGS+=(--wandb-tags moderation table7 api slurm)
-fi
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args moderation table7 api slurm
 
 # Run API baselines (Table 7 API rows): Perspective + TTP (OpenRouter) on full dataset
 if python scripts/evaluate_openai_moderation.py \

@@ -34,14 +34,9 @@ TGT_LANGS="${TGT_LANGS:-spa_Latn fra_Latn deu_Latn arb_Arab hin_Deva zho_Hans}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-256}"
 
-WANDB_ARGS=()
-if [ "${WANDB_ENABLED:-0}" = "1" ]; then
-  WANDB_ARGS+=(--wandb --wandb-project "${WANDB_PROJECT:-TowardsSaferPretraining}")
-  if [ -n "${WANDB_ENTITY:-}" ]; then WANDB_ARGS+=(--wandb-entity "$WANDB_ENTITY"); fi
-  if [ -n "${WANDB_GROUP:-}" ]; then WANDB_ARGS+=(--wandb-group "$WANDB_GROUP"); fi
-  if [ -n "${WANDB_MODE:-}" ]; then WANDB_ARGS+=(--wandb-mode "$WANDB_MODE"); fi
-  WANDB_ARGS+=(--wandb-tags translation multilingual slurm)
-fi
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/jobs/_wandb_args.sh"
+build_wandb_args translation multilingual slurm
 
 python scripts/translate_ttp_eval.py \
   --input data/TTP-Eval/TTPEval.tsv \
