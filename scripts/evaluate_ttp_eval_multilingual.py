@@ -86,41 +86,6 @@ def main() -> int:
 
     collected_results: Dict[str, Dict[str, Any]] = {}
 
-    with maybe_track_emissions(run_name="ttp_eval_multilingual"):
-        for lang in args.langs:
-            tsv_path = translated_dir / f"TTPEval_{lang}.tsv"
-            if not tsv_path.exists():
-                raise FileNotFoundError(f"Missing translated TSV: {tsv_path}")
-
-            common = [
-                sys.executable,
-                "scripts/evaluate_ttp_eval.py",
-                "--data-path",
-                str(tsv_path),
-                "--device",
-                args.device,
-                "--dimension",
-                args.dimension,
-                "--invalid-policy",
-                "exclude",
-            ]
-            if args.limit is not None:
-                common += ["--limit", str(args.limit)]
-
-            if "harmformer" in args.setups:
-                out_path = out_dir / f"harmformer_{lang}.json"
-                _run(common + ["--setups", "harmformer", "--output", str(out_path)], disable_wandb=True)
-                if out_path.exists():
-                    payload = json.loads(out_path.read_text(encoding="utf-8"))
-                    collected_results[f"harmformer_{lang}"] = extract_overall_metrics(payload)
-
-            if "llama_guard" in args.setups:
-                out_path = out_dir / f"llama_guard_{lang}.json"
-                _run(common + ["--setups", "llama_guard", "--output", str(out_path)], disable_wandb=True)
-                if out_path.exists():
-                    payload = json.loads(out_path.read_text(encoding="utf-8"))
-                    collected_results[f"llama_guard_{lang}"] = extract_overall_metrics(payload)
-
     wandb_run = init_wandb_from_args(
         args,
         run_name="evaluate_ttp_eval_multilingual",
@@ -136,7 +101,43 @@ def main() -> int:
         },
         extra_tags=["multilingual", "ttp-eval", "reproduction"],
     )
+
     try:
+        with maybe_track_emissions(run_name="ttp_eval_multilingual"):
+            for lang in args.langs:
+                tsv_path = translated_dir / f"TTPEval_{lang}.tsv"
+                if not tsv_path.exists():
+                    raise FileNotFoundError(f"Missing translated TSV: {tsv_path}")
+
+                common = [
+                    sys.executable,
+                    "scripts/evaluate_ttp_eval.py",
+                    "--data-path",
+                    str(tsv_path),
+                    "--device",
+                    args.device,
+                    "--dimension",
+                    args.dimension,
+                    "--invalid-policy",
+                    "exclude",
+                ]
+                if args.limit is not None:
+                    common += ["--limit", str(args.limit)]
+
+                if "harmformer" in args.setups:
+                    out_path = out_dir / f"harmformer_{lang}.json"
+                    _run(common + ["--setups", "harmformer", "--output", str(out_path)], disable_wandb=True)
+                    if out_path.exists():
+                        payload = json.loads(out_path.read_text(encoding="utf-8"))
+                        collected_results[f"harmformer_{lang}"] = extract_overall_metrics(payload)
+
+                if "llama_guard" in args.setups:
+                    out_path = out_dir / f"llama_guard_{lang}.json"
+                    _run(common + ["--setups", "llama_guard", "--output", str(out_path)], disable_wandb=True)
+                    if out_path.exists():
+                        payload = json.loads(out_path.read_text(encoding="utf-8"))
+                        collected_results[f"llama_guard_{lang}"] = extract_overall_metrics(payload)
+
         for key, metrics in collected_results.items():
             flat = {f"{key}/{k}": v for k, v in metrics.items()}
             wandb_run.update_summary(flat)
@@ -145,8 +146,11 @@ def main() -> int:
             path = out_dir / f"{key}.json"
             if path.exists():
                 wandb_run.log_json_artifact(path, name=f"ttp_eval_multilingual_{path.stem}")
-    finally:
-        wandb_run.finish()
+    except Exception:
+        wandb_run.finish(exit_code=1)
+        raise
+    else:
+        wandb_run.finish(exit_code=0)
 
     print(f"Done. Wrote results to: {out_dir}")
     return 0

@@ -360,45 +360,7 @@ def main() -> int:
 
     results: List[Dict[str, Any]] = []
     invalid_policy = args.invalid_policy or "exclude"
-    for name, clf in setups:
-        with maybe_track_emissions(run_name=f"ttp_eval_{name.replace(' ', '_').lower()}"):
-            results.append(
-                _evaluate_setup(
-                    name,
-                    clf,
-                    samples,
-                    dimension=args.dimension,
-                    invalid_policy=invalid_policy,
-                )
-            )
 
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    payload: Dict[str, Any] = {
-        "run_metadata": gather_run_metadata(repo_root=str(Path(__file__).parent.parent)),
-        "evaluation_config": {
-            "dataset": args.data_path,
-            "total_samples": len(samples),
-            "dimension": args.dimension,
-            "lang_filter": args.lang,
-            "include_unknown_lang": args.include_unknown_lang,
-            "setups": [n for n, _ in setups],
-            "device": args.device,
-            "openai_model": args.openai_model,
-            "openrouter_model": args.openrouter_model,
-            "gemini_model": args.gemini_model,
-            "prompt_path": args.prompt_path,
-            "perspective_threshold": args.perspective_threshold,
-            "perspective_chunk_chars": args.perspective_chunk_chars,
-            "local_models": args.local_model,
-            "dtype": args.dtype,
-            "quantization": args.quantization,
-            "invalid_policy": args.invalid_policy,
-        },
-        "results": results,
-    }
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     wandb_run = init_wandb_from_args(
         args,
         run_name="evaluate_ttp_eval",
@@ -420,7 +382,48 @@ def main() -> int:
         },
         extra_tags=["ttp-eval", "reproduction"],
     )
+
     try:
+        for name, clf in setups:
+            with maybe_track_emissions(run_name=f"ttp_eval_{name.replace(' ', '_').lower()}"):
+                results.append(
+                    _evaluate_setup(
+                        name,
+                        clf,
+                        samples,
+                        dimension=args.dimension,
+                        invalid_policy=invalid_policy,
+                    )
+                )
+
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        payload: Dict[str, Any] = {
+            "run_metadata": gather_run_metadata(repo_root=str(Path(__file__).parent.parent)),
+            "evaluation_config": {
+                "dataset": args.data_path,
+                "total_samples": len(samples),
+                "dimension": args.dimension,
+                "lang_filter": args.lang,
+                "include_unknown_lang": args.include_unknown_lang,
+                "setups": [n for n, _ in setups],
+                "device": args.device,
+                "openai_model": args.openai_model,
+                "openrouter_model": args.openrouter_model,
+                "gemini_model": args.gemini_model,
+                "prompt_path": args.prompt_path,
+                "perspective_threshold": args.perspective_threshold,
+                "perspective_chunk_chars": args.perspective_chunk_chars,
+                "local_models": args.local_model,
+                "dtype": args.dtype,
+                "quantization": args.quantization,
+                "invalid_policy": args.invalid_policy,
+            },
+            "results": results,
+        }
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
         wandb_run.update_summary(extract_overall_metrics(payload))
         wandb_run.update_summary(
             {
@@ -430,8 +433,12 @@ def main() -> int:
             }
         )
         wandb_run.log_json_artifact(out_path, name=f"ttp_eval_{out_path.stem}")
-    finally:
-        wandb_run.finish()
+    except Exception:
+        wandb_run.finish(exit_code=1)
+        raise
+    else:
+        wandb_run.finish(exit_code=0)
+
     print(f"Saved: {out_path}")
     return 0
 

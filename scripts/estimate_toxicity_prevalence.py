@@ -265,56 +265,6 @@ def main() -> int:
     if not texts:
         raise SystemExit("No samples loaded (check --input-format/--text-field and input file contents).")
 
-    with maybe_track_emissions(run_name=f"toxicity_prevalence_{args.setup}"):
-        clf = _make_classifier(args)
-
-        # Prefer batch prediction when supported.
-        labels: List[HarmLabel]
-        if hasattr(clf, "predict_batch") and callable(getattr(clf, "predict_batch")):
-            labels = clf.predict_batch(texts, show_progress=True)
-        else:
-            labels = [clf.predict(t) for t in texts]
-
-    counts = _Counts()
-    for lab in labels:
-        counts = _accumulate_counts(lab, counts)
-
-    n = len(labels)
-    if n == 0:
-        raise SystemExit("No labels produced.")
-    payload: Dict[str, Any] = {
-        "config": {
-            "input_path": str(in_path),
-            "input_format": args.input_format,
-            "text_field": args.text_field,
-            "limit": int(args.limit),
-            "sample_method": args.sample_method,
-            "seed": int(args.seed),
-            "setup": args.setup,
-        },
-        "counts": {
-            "n": n,
-            "overall_toxic": counts.overall_toxic,
-            "H": counts.H,
-            "IH": counts.IH,
-            "SE": counts.SE,
-            "IL": counts.IL,
-            "SI": counts.SI,
-        },
-        "prevalence": {
-            "overall_toxic": counts.overall_toxic / n,
-            "H": counts.H / n,
-            "IH": counts.IH / n,
-            "SE": counts.SE / n,
-            "IL": counts.IL / n,
-            "SI": counts.SI / n,
-        },
-    }
-
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
     wandb_run = init_wandb_from_args(
         args,
         run_name=f"estimate_toxicity_prevalence_{args.setup}",
@@ -336,12 +286,66 @@ def main() -> int:
         },
         extra_tags=["prevalence", "reproduction"],
     )
+
     try:
+        with maybe_track_emissions(run_name=f"toxicity_prevalence_{args.setup}"):
+            clf = _make_classifier(args)
+
+            # Prefer batch prediction when supported.
+            labels: List[HarmLabel]
+            if hasattr(clf, "predict_batch") and callable(getattr(clf, "predict_batch")):
+                labels = clf.predict_batch(texts, show_progress=True)
+            else:
+                labels = [clf.predict(t) for t in texts]
+
+        counts = _Counts()
+        for lab in labels:
+            counts = _accumulate_counts(lab, counts)
+
+        n = len(labels)
+        if n == 0:
+            raise SystemExit("No labels produced.")
+        payload: Dict[str, Any] = {
+            "config": {
+                "input_path": str(in_path),
+                "input_format": args.input_format,
+                "text_field": args.text_field,
+                "limit": int(args.limit),
+                "sample_method": args.sample_method,
+                "seed": int(args.seed),
+                "setup": args.setup,
+            },
+            "counts": {
+                "n": n,
+                "overall_toxic": counts.overall_toxic,
+                "H": counts.H,
+                "IH": counts.IH,
+                "SE": counts.SE,
+                "IL": counts.IL,
+                "SI": counts.SI,
+            },
+            "prevalence": {
+                "overall_toxic": counts.overall_toxic / n,
+                "H": counts.H / n,
+                "IH": counts.IH / n,
+                "SE": counts.SE / n,
+                "IL": counts.IL / n,
+                "SI": counts.SI / n,
+            },
+        }
+
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
         wandb_run.update_summary(extract_overall_metrics(payload))
         wandb_run.update_summary({"output/path": str(out_path)})
         wandb_run.log_json_artifact(out_path, name=f"toxicity_prevalence_{out_path.stem}")
-    finally:
-        wandb_run.finish()
+    except Exception:
+        wandb_run.finish(exit_code=1)
+        raise
+    else:
+        wandb_run.finish(exit_code=0)
 
     print(f"Saved: {out_path}")
     return 0

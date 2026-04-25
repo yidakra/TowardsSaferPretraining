@@ -56,81 +56,6 @@ def main() -> int:
     args = parser.parse_args()
 
     loader = HAVOCLoader(args.data_path, modeleval_filepath=args.modeleval_path)
-    with maybe_track_emissions(run_name=f"havoc_modeleval_{args.model_key}"):
-        samples = loader.load()
-
-    harm_leakage = {
-        "H": {"neutral": 0, "passive": 0, "provocative": 0},
-        "IH": {"neutral": 0, "passive": 0, "provocative": 0},
-        "SE": {"neutral": 0, "passive": 0, "provocative": 0},
-        "IL": {"neutral": 0, "passive": 0, "provocative": 0},
-        "SI": {"neutral": 0, "passive": 0, "provocative": 0},
-    }
-    harm_attrs = {
-        "H": "hate_violence",
-        "IH": "ideological",
-        "SE": "sexual",
-        "IL": "illegal",
-        "SI": "self_inflicted",
-    }
-
-    totals = {"neutral": 0, "passive": 0, "provocative": 0}
-    leaked_counts = {"neutral": 0, "passive": 0, "provocative": 0}
-    error_count = 0
-
-    for s in samples:
-        leakage_type = s.get_leakage_type()
-        if leakage_type not in totals:
-            continue
-        totals[leakage_type] += 1
-
-        me = s.model_evaluations.get(args.model_key)
-        if me is None or not me.label:
-            error_count += 1
-            continue
-
-        response_label = _parse_label_list(me.label)
-        leaked = response_label.is_toxic()
-        if leaked:
-            leaked_counts[leakage_type] += 1
-            for harm_code, attr in harm_attrs.items():
-                if getattr(response_label, attr) == Dimension.TOXIC:
-                    harm_leakage[harm_code][leakage_type] += 1
-
-    total_samples = sum(totals.values())
-    overall_leaked = sum(leaked_counts.values())
-    leakage_percentages = {
-        k: (leaked_counts[k] / totals[k] * 100.0) if totals[k] else 0.0 for k in totals
-    }
-    leakage_percentages["overall"] = (overall_leaked / total_samples * 100.0) if total_samples else 0.0
-
-    output_data: Dict[str, Any] = {
-        "evaluation": {
-            "model_name": args.model_key,
-            "total_samples": total_samples,
-            "error_count": error_count,
-            "loader_stats": loader.get_load_stats(),
-            "leakage": {
-                "neutral": {"total": totals["neutral"], "leaked": leaked_counts["neutral"]},
-                "passive": {"total": totals["passive"], "leaked": leaked_counts["passive"]},
-                "provocative": {"total": totals["provocative"], "leaked": leaked_counts["provocative"]},
-            },
-            "leakage_percentages": leakage_percentages,
-            "harm_leakage": harm_leakage,
-        },
-        "config": {
-            "mode": "modeleval",
-            "data_path": args.data_path,
-            "modeleval_path": args.modeleval_path,
-            "model_key": args.model_key,
-        },
-    }
-
-    out_path = Path(args.output)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
-        output_data["run_metadata"] = gather_run_metadata(repo_root=str(Path(__file__).parent.parent))
-        json.dump(output_data, f, indent=2)
 
     wandb_run = init_wandb_from_args(
         args,
@@ -143,10 +68,92 @@ def main() -> int:
         },
         extra_tags=["havoc", "modeleval", "reproduction"],
     )
-    wandb_run.update_summary(extract_overall_metrics(output_data))
-    wandb_run.update_summary({"output/path": str(out_path)})
-    wandb_run.log_json_artifact(out_path, name=f"havoc_modeleval_{args.model_key}_{out_path.stem}")
-    wandb_run.finish()
+
+    try:
+        with maybe_track_emissions(run_name=f"havoc_modeleval_{args.model_key}"):
+            samples = loader.load()
+
+        harm_leakage = {
+            "H": {"neutral": 0, "passive": 0, "provocative": 0},
+            "IH": {"neutral": 0, "passive": 0, "provocative": 0},
+            "SE": {"neutral": 0, "passive": 0, "provocative": 0},
+            "IL": {"neutral": 0, "passive": 0, "provocative": 0},
+            "SI": {"neutral": 0, "passive": 0, "provocative": 0},
+        }
+        harm_attrs = {
+            "H": "hate_violence",
+            "IH": "ideological",
+            "SE": "sexual",
+            "IL": "illegal",
+            "SI": "self_inflicted",
+        }
+
+        totals = {"neutral": 0, "passive": 0, "provocative": 0}
+        leaked_counts = {"neutral": 0, "passive": 0, "provocative": 0}
+        error_count = 0
+
+        for s in samples:
+            leakage_type = s.get_leakage_type()
+            if leakage_type not in totals:
+                continue
+            totals[leakage_type] += 1
+
+            me = s.model_evaluations.get(args.model_key)
+            if me is None or not me.label:
+                error_count += 1
+                continue
+
+            response_label = _parse_label_list(me.label)
+            leaked = response_label.is_toxic()
+            if leaked:
+                leaked_counts[leakage_type] += 1
+                for harm_code, attr in harm_attrs.items():
+                    if getattr(response_label, attr) == Dimension.TOXIC:
+                        harm_leakage[harm_code][leakage_type] += 1
+
+        total_samples = sum(totals.values())
+        overall_leaked = sum(leaked_counts.values())
+        leakage_percentages = {
+            k: (leaked_counts[k] / totals[k] * 100.0) if totals[k] else 0.0 for k in totals
+        }
+        leakage_percentages["overall"] = (overall_leaked / total_samples * 100.0) if total_samples else 0.0
+
+        output_data: Dict[str, Any] = {
+            "evaluation": {
+                "model_name": args.model_key,
+                "total_samples": total_samples,
+                "error_count": error_count,
+                "loader_stats": loader.get_load_stats(),
+                "leakage": {
+                    "neutral": {"total": totals["neutral"], "leaked": leaked_counts["neutral"]},
+                    "passive": {"total": totals["passive"], "leaked": leaked_counts["passive"]},
+                    "provocative": {"total": totals["provocative"], "leaked": leaked_counts["provocative"]},
+                },
+                "leakage_percentages": leakage_percentages,
+                "harm_leakage": harm_leakage,
+            },
+            "config": {
+                "mode": "modeleval",
+                "data_path": args.data_path,
+                "modeleval_path": args.modeleval_path,
+                "model_key": args.model_key,
+            },
+        }
+
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w") as f:
+            output_data["run_metadata"] = gather_run_metadata(repo_root=str(Path(__file__).parent.parent))
+            json.dump(output_data, f, indent=2)
+
+        wandb_run.update_summary(extract_overall_metrics(output_data))
+        wandb_run.update_summary({"output/path": str(out_path)})
+        wandb_run.log_json_artifact(out_path, name=f"havoc_modeleval_{args.model_key}_{out_path.stem}")
+    except Exception:
+        wandb_run.finish(exit_code=1)
+        raise
+    else:
+        wandb_run.finish(exit_code=0)
 
     print(f"Saved: {out_path}")
     return 0
