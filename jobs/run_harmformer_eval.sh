@@ -48,6 +48,9 @@ source venv/bin/activate || {
     exit 1
 }
 
+# Load environment variables from .env file (absolute path for Slurm)
+set -a; source "$HOME/TowardsSaferPretraining/.env" 2>/dev/null || true; set +a
+
 # Optional CodeCarbon tracking
 mkdir -p results/codecarbon
 export CODECARBON_OUTPUT_DIR="${CODECARBON_OUTPUT_DIR:-$PROJECT_DIR/results/codecarbon}"
