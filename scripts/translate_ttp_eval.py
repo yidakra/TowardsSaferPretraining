@@ -110,58 +110,6 @@ def main() -> int:
     if "Body" not in fieldnames or "Lang" not in fieldnames:
         raise ValueError("Expected columns include at least 'Body' and 'Lang'")
 
-    with maybe_track_emissions(run_name=f"translate_ttp_eval_{model_name_slug}"):
-        tokenizer = AutoTokenizer.from_pretrained(args.model_id)
-        model = AutoModelForSeq2SeqLM.from_pretrained(args.model_id)
-
-        if args.device == "cuda" and torch.cuda.is_available():
-            model = model.to("cuda")
-        elif args.device == "mps" and torch.backends.mps.is_available():
-            model = model.to("mps")
-        else:
-            model = model.to("cpu")
-
-        tokenizer.src_lang = args.src_lang
-
-        source_texts = [r.get("Body", "") for r in rows]
-
-        generated_files: List[Path] = []
-
-        for tgt_lang in args.tgt_langs:
-            forced_bos_token_id = tokenizer.convert_tokens_to_ids(tgt_lang)
-            # HF tokenizers map unknown tokens to unk_token_id rather than None,
-            # so a typo'd NLLB code would silently produce garbage without this check.
-            if forced_bos_token_id is None or forced_bos_token_id == tokenizer.unk_token_id:
-                raise ValueError(f"Unknown tgt lang for tokenizer: {tgt_lang}")
-
-            translated: List[str] = []
-            for batch in _batched(source_texts, args.batch_size):
-                inputs = tokenizer(batch, return_tensors="pt", padding=True, truncation=True)
-                inputs = {k: v.to(model.device) for k, v in inputs.items()}
-                with torch.no_grad():
-                    outputs = model.generate(
-                        **inputs,
-                        forced_bos_token_id=forced_bos_token_id,
-                        max_new_tokens=args.max_new_tokens,
-                    )
-                translated.extend(tokenizer.batch_decode(outputs, skip_special_tokens=True))
-
-            if len(translated) != len(rows):
-                raise RuntimeError("Translation batch size mismatch")
-
-            out_rows: List[Dict[str, str]] = []
-            lang_cell = _lang_cell_from_nllb_code(tgt_lang)
-            for r, t in zip(rows, translated, strict=True):
-                rr = dict(r)
-                rr["Body"] = t
-                rr["Lang"] = lang_cell
-                out_rows.append(rr)
-
-            out_path = out_dir / f"TTPEval_{tgt_lang}.tsv"
-            _write_tsv(out_path, out_rows, fieldnames=fieldnames)
-            print(f"Wrote: {out_path}")
-            generated_files.append(out_path)
-
     wandb_run = init_wandb_from_args(
         args,
         run_name="translate_ttp_eval",
@@ -179,7 +127,60 @@ def main() -> int:
         },
         extra_tags=["translation", "ttp-eval", "reproduction"],
     )
+
     try:
+        with maybe_track_emissions(run_name=f"translate_ttp_eval_{model_name_slug}"):
+            tokenizer = AutoTokenizer.from_pretrained(args.model_id)
+            model = AutoModelForSeq2SeqLM.from_pretrained(args.model_id)
+
+            if args.device == "cuda" and torch.cuda.is_available():
+                model = model.to("cuda")
+            elif args.device == "mps" and torch.backends.mps.is_available():
+                model = model.to("mps")
+            else:
+                model = model.to("cpu")
+
+            tokenizer.src_lang = args.src_lang
+
+            source_texts = [r.get("Body", "") for r in rows]
+
+            generated_files: List[Path] = []
+
+            for tgt_lang in args.tgt_langs:
+                forced_bos_token_id = tokenizer.convert_tokens_to_ids(tgt_lang)
+                # HF tokenizers map unknown tokens to unk_token_id rather than None,
+                # so a typo'd NLLB code would silently produce garbage without this check.
+                if forced_bos_token_id is None or forced_bos_token_id == tokenizer.unk_token_id:
+                    raise ValueError(f"Unknown tgt lang for tokenizer: {tgt_lang}")
+
+                translated: List[str] = []
+                for batch in _batched(source_texts, args.batch_size):
+                    inputs = tokenizer(batch, return_tensors="pt", padding=True, truncation=True)
+                    inputs = {k: v.to(model.device) for k, v in inputs.items()}
+                    with torch.no_grad():
+                        outputs = model.generate(
+                            **inputs,
+                            forced_bos_token_id=forced_bos_token_id,
+                            max_new_tokens=args.max_new_tokens,
+                        )
+                    translated.extend(tokenizer.batch_decode(outputs, skip_special_tokens=True))
+
+                if len(translated) != len(rows):
+                    raise RuntimeError("Translation batch size mismatch")
+
+                out_rows: List[Dict[str, str]] = []
+                lang_cell = _lang_cell_from_nllb_code(tgt_lang)
+                for r, t in zip(rows, translated, strict=True):
+                    rr = dict(r)
+                    rr["Body"] = t
+                    rr["Lang"] = lang_cell
+                    out_rows.append(rr)
+
+                out_path = out_dir / f"TTPEval_{tgt_lang}.tsv"
+                _write_tsv(out_path, out_rows, fieldnames=fieldnames)
+                print(f"Wrote: {out_path}")
+                generated_files.append(out_path)
+
         wandb_run.update_summary(
             {
                 "translation/rows": len(rows),
@@ -198,8 +199,11 @@ def main() -> int:
         for generated in generated_files:
             if generated.exists():
                 wandb_run.log_file_artifact(generated, name=f"translated_ttp_eval_{generated.stem}", artifact_type="dataset")
-    finally:
-        wandb_run.finish()
+    except Exception as e:
+        wandb_run.finish(exit_code=1)
+        raise
+    else:
+        wandb_run.finish(exit_code=0)
 
     return 0
 
