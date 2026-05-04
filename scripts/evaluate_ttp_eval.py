@@ -187,6 +187,10 @@ def _evaluate_setup(
         "metrics": metrics,
         "invalid_policy": invalid_policy,
         "client_stats": client_stats,
+        "per_sample_toxic": {
+            "pred": [bool(p.is_toxic()) for p in preds],
+            "gold": [bool(g.is_toxic()) for g in gts],
+        },
     }
 
 
