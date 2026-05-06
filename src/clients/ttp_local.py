@@ -171,6 +171,14 @@ class TransformersTTPClient:
             self.model.to(device)
         self.model.eval()
 
+        # Audit log of raw model outputs and the labels we parsed from them.
+        # Populated on every evaluate() call (success or failure) so we can
+        # diagnose silent SAFE-coercion in Dimension.from_label.
+        self._raw_responses: List[Dict[str, Any]] = []
+
+    def get_raw_responses(self) -> List[Dict[str, Any]]:
+        return list(self._raw_responses)
+
     def _parse_prompt_template(self) -> None:
         blocks = re.findall(
             r"<\|im_start\|>(system|user|assistant)\s*(.*?)<\|im_end\|>",
@@ -574,9 +582,27 @@ Output ONLY: <Label>{{H: ..., IH: ..., SE: ..., IL: ..., SI: ...}}</Label>"""
                 lbl = self._parse_response(text)
             except Exception as e:
                 print(f"[DEBUG] Failed to parse TTP label from {self.model_id}. Raw output: {text[:500]!r}", file=__import__('sys').stderr)
+                self._raw_responses.append({
+                    "url": url,
+                    "raw": text[:2000],
+                    "label": None,
+                    "parse_error": f"{type(e).__name__}: {e}",
+                })
                 raise RuntimeError(f"Failed to parse TTP label. output_head={text[:240]!r}. error={e}") from e
+            self._raw_responses.append({
+                "url": url,
+                "raw": text[:2000],
+                "label": lbl.to_dict(),
+                "parse_error": None,
+            })
             return LocalTTPResult(predicted_label=lbl, raw_response=text)
         except Exception as e:
+            self._raw_responses.append({
+                "url": url,
+                "raw": None,
+                "label": None,
+                "parse_error": f"{type(e).__name__}: {e}",
+            })
             return LocalTTPResult(predicted_label=HarmLabel(), raw_response=None, error=str(e))
 
     def predict(self, text: str) -> HarmLabel:

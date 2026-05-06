@@ -179,6 +179,13 @@ def _evaluate_setup(
         except Exception:
             client_stats = None
 
+    raw_responses = None
+    if hasattr(clf, "get_raw_responses") and callable(getattr(clf, "get_raw_responses")):
+        try:
+            raw_responses = clf.get_raw_responses()  # type: ignore[attr-defined]
+        except Exception:
+            raw_responses = None
+
     return {
         "setup": name,
         "total_samples": len(samples),
@@ -191,6 +198,7 @@ def _evaluate_setup(
             "pred": [bool(p.is_toxic()) for p in preds],
             "gold": [bool(g.is_toxic()) for g in gts],
         },
+        "raw_responses": raw_responses,
     }
 
 
