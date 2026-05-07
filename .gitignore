@@ -51,6 +51,8 @@ logs/
 # Figures (regenerate; do not version)
 *.png
 *.svg
+# Exception: report figures are committed alongside the .tex file
+!report/*.png
 
 # Model checkpoints
 checkpoints/
