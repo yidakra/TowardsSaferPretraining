@@ -51,8 +51,10 @@ logs/
 # Figures (regenerate; do not version)
 *.png
 *.svg
-# Exception: report figures are committed alongside the .tex file
-!report/*.png
+
+# Report (kept local; not versioned to avoid leaking deanonymizing
+# author/build artifacts via the anonymized public mirror).
+report/
 
 # Model checkpoints
 checkpoints/
