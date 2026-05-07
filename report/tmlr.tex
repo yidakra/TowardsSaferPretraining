@@ -284,12 +284,8 @@ Claim & Metric & Original & Reproduced & Status \\
 3: TTP on OpenAI Mod & F1 & 0.80 & 0.55$^{\dagger}$ / 0.83$^{\ddagger}$ & Reproduced (May)$^{**}$ \\
 4: HAVOC leakage & Overall & 26.7\% & 26.76\% & Reproduced \\
 \hline
-\multicolumn{5}{l}{\small $^*$Evaluated on TTP-Eval instead of unreleased internal test split.} \\
-\multicolumn{5}{l}{\small $^{\dagger}$April measurement (TTP-Eval $n=393$ via OpenRouter; OpenAI Mod $n=1{,}680$ via OpenRouter, P=0.80, R=0.42, F1=0.55).} \\
-\multicolumn{5}{l}{\small $^{\ddagger}$May re-run on byte-identical code (Section~\ref{sec:model-drift}); both gaps close, attributable to silent \texttt{gpt-4o} snapshot drift.} \\
-\multicolumn{5}{l}{\small $^{**}$May OpenAI Mod re-run via OpenRouter: $P=0.75, R=0.93, F_1=0.83$ on 1{,}679/1{,}680 evaluated samples.} \\
 \end{tabular}
-\caption{Summary of Reproducibility Results}
+\caption{Summary of Reproducibility Results. $^*$Evaluated on TTP-Eval instead of the unreleased internal test split. $^{\dagger}$April measurement (TTP-Eval $n=393$ via OpenRouter; OpenAI Mod $n=1{,}680$ via OpenRouter, $P=0.80$, $R=0.42$, $F_1=0.55$). $^{\ddagger}$May re-run on byte-identical code (Section~\ref{sec:model-drift}); both gaps close, attributable to silent \texttt{gpt-4o} snapshot drift. $^{**}$May OpenAI Mod re-run via OpenRouter: $P=0.75$, $R=0.93$, $F_1=0.83$ on 1{,}679/1{,}680 evaluated samples.}
 \label{tab:reproducibility-summary}
 \end{table}
 
@@ -327,6 +323,7 @@ We extended the same audit instrumentation to all three remaining open-weight cr
 \begin{table}[H]
 \centering
 \small
+\setlength{\tabcolsep}{5pt}
 \begin{tabular}{lcccccc}
 \hline
 Model & Eval/Total & Parse errs & $F_1$ audit [95\% CI] & Paper $F_1$ & \textsc{Intent} rate & Pred/gold toxic \\
@@ -548,6 +545,8 @@ Chinese & 0.31 [0.23, 0.39] & 0.35 [0.25, 0.45] \\
 \end{table}
 \begin{table}[H]
 \centering
+\small
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{lrrr}
 \hline
 Experiment & Duration (s) & Energy (kWh) & CO$_2$ (kg) \\
