@@ -327,17 +327,17 @@ We extended the same audit instrumentation to all three remaining open-weight cr
 \begin{table}[H]
 \centering
 \small
-\begin{tabular}{lccccc}
+\begin{tabular}{lcccccc}
 \hline
-Model & Eval/Total & Parse errs & $F_1$ (audit / paper) & \textsc{Intent} rate & \% samples toxic (pred / gold) \\
+Model & Eval/Total & Parse errs & $F_1$ audit [95\% CI] & Paper $F_1$ & \textsc{Intent} rate & Pred/gold toxic \\
 \hline
-Gemma 2 27B   & 391/393 & 0 & 0.33 / 0.35 & 1.4\% & 5.4\% / 24.3\% \\
-Gemma 3 27B   & 393/393 & 0 & 0.57 / 0.57 & 2.9\% & 11.7\% / 24.2\% \\
-GPT-OSS 20B   & 391/393 & 4 & 0.42 / 0.39 & 2.1\% & 7.4\% / 24.3\% \\
-R1-Distill-Qwen-32B & 390/393 & 6 & 0.60 / 0.63 & 5.4\% & 22.3\% / 24.1\% \\
+Gemma 2 27B   & 391/393 & 0 & 0.33 [0.21, 0.44] & 0.35 & 1.4\% & 5.4\% / 24.3\% \\
+Gemma 3 27B   & 393/393 & 0 & 0.57 [0.46, 0.66] & 0.57 & 2.9\% & 11.7\% / 24.2\% \\
+GPT-OSS 20B   & 391/393 & 4 & 0.42 [0.30, 0.53] & 0.39 & 2.1\% & 7.4\% / 24.3\% \\
+R1-Distill-Qwen-32B & 390/393 & 6 & 0.60 [0.51, 0.68] & 0.63 & 5.4\% & 22.3\% / 24.1\% \\
 \hline
 \end{tabular}
-\caption{Cross-model audit summary on TTP-Eval ($n=393$). \textsc{Intent} rate is the fraction of 1{,}955--1{,}965 filled dimension-slots (5 harm categories $\times$ evaluated samples) that the model labels as \textsc{Intent-*}. Pred/gold sample-toxic rates are the fractions of \emph{samples} flagged as toxic by aggregating the five categories. F1 columns are our reproduction vs.\ the original paper's reported values; all four reproduce within 0.03 absolute F1.}
+\caption{Cross-model audit summary on TTP-Eval ($n=393$) with 95\% bootstrap CIs ($n=10{,}000$ resamples). \textsc{Intent} rate is the fraction of 1{,}955--1{,}965 filled dimension-slots (5 harm categories $\times$ evaluated samples) that the model labels as \textsc{Intent-*}. Pred/gold toxic columns are the fractions of \emph{samples} flagged toxic by aggregating the five categories. All four audited F1s contain the original paper's reported value within their 95\% CI, and the rank ordering by Intent rate matches the rank ordering by point-estimate F1.}
 \label{tab:cross-model-audit}
 \end{table}
 
