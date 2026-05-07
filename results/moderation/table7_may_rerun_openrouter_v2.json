@@ -1,0 +1,97 @@
+{
+  "run_metadata": {
+    "timestamp_utc": "2026-05-06T20:09:43.895564+00:00",
+    "user": "scur0505",
+    "hostname": "gcn46.local.snellius.surf.nl",
+    "platform": {
+      "system": "Linux",
+      "release": "5.14.0-570.106.1.el9_6.x86_64",
+      "machine": "x86_64",
+      "python": "3.11.3"
+    },
+    "slurm": {
+      "job_id": "22522429",
+      "job_name": "openai_mod_may2",
+      "partition": "gpu_a100"
+    },
+    "git": {
+      "commit": "676050c09fd33ab1154ae5e4fceee72ce298c49c",
+      "dirty": true
+    },
+    "inputs": {
+      "requirements_txt": "/gpfs/home4/scur0505/TowardsSaferPretraining/requirements.txt",
+      "requirements_sha256": "2729117512db7d5f6210b52dd51adae92d458d8af83d402a7b58eccb76c6c94f"
+    },
+    "packages": {
+      "torch": "2.11.0",
+      "transformers": "5.6.2",
+      "openai": "2.32.0",
+      "datasets": "4.8.4",
+      "accelerate": "1.13.0",
+      "scikit-learn": "1.8.0",
+      "codecarbon": "3.2.6",
+      "google-genai": "1.73.1",
+      "google-generativeai": "0.8.6"
+    }
+  },
+  "evaluation_config": {
+    "dataset": "data/moderation-api-release/data/samples-1680.jsonl.gz",
+    "total_samples": 1680,
+    "baselines": [
+      "TTP (OpenRouter: openai/gpt-4o)"
+    ],
+    "perspective_threshold": 0.4,
+    "device": "cuda",
+    "invalid_policy": null
+  },
+  "results": [
+    {
+      "classifier": "TTP (OpenRouter: openai/gpt-4o)",
+      "total_samples": 1680,
+      "failed_samples": 0,
+      "evaluated_samples": 1680,
+      "metrics": {
+        "overall": {
+          "precision": 0.7515432098765432,
+          "recall": 0.9329501915708812,
+          "f1": 0.8324786324786325
+        },
+        "per_harm": {
+          "H": {
+            "precision": 0.7794117647058824,
+            "recall": 0.4061302681992337,
+            "f1": 0.5340050377833753
+          },
+          "IH": {
+            "precision": 0.6237113402061856,
+            "recall": 0.23180076628352492,
+            "f1": 0.3379888268156425
+          },
+          "SE": {
+            "precision": 0.8304498269896193,
+            "recall": 0.45977011494252873,
+            "f1": 0.5918618988902589
+          },
+          "IL": {
+            "precision": 0.47058823529411764,
+            "recall": 0.01532567049808429,
+            "f1": 0.02968460111317254
+          },
+          "SI": {
+            "precision": 0.8269230769230769,
+            "recall": 0.08237547892720307,
+            "f1": 0.14982578397212543
+          }
+        },
+        "dimension": "toxic",
+        "total_samples": 1680
+      },
+      "invalid_policy": "exclude",
+      "client_stats": {
+        "total_requests": 1682,
+        "failed_requests": 1,
+        "total_tokens": 8421663
+      }
+    }
+  ]
+}
