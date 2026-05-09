@@ -32,6 +32,7 @@ export CODECARBON_EXPERIMENT_ID="${CODECARBON_EXPERIMENT_ID:-${SLURM_JOB_ID:-}}"
 
 # Choose which translated directory to evaluate.
 TRANSLATED_DIR="${TRANSLATED_DIR:-data/TTP-Eval/translated/nllb-200-3.3B}"
+OUTPUT_DIR="${OUTPUT_DIR:-results/ttp_eval_multilingual}"
 LANGS="${LANGS:-spa_Latn fra_Latn deu_Latn arb_Arab hin_Deva zho_Hans}"
 SETUPS="${SETUPS:-harmformer llama_guard}"
 LIMIT="${LIMIT:-}"
@@ -49,7 +50,7 @@ CMD=(python scripts/evaluate_ttp_eval_multilingual.py \
   --setups $SETUPS \
   --device cuda \
   --dimension toxic \
-  --output-dir results/ttp_eval_multilingual \
+  --output-dir "$OUTPUT_DIR" \
   "${WANDB_ARGS[@]}")
 
 if [[ -n "$LIMIT" ]]; then
