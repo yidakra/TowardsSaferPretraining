@@ -1,8 +1,8 @@
 {
   "run_metadata": {
     "timestamp_utc": "2026-05-06T20:09:43.895564+00:00",
-    "user": "scur0505",
-    "hostname": "gcn46.local.snellius.surf.nl",
+    "user": "anon-user",
+    "hostname": "redacted-host",
     "platform": {
       "system": "Linux",
       "release": "5.14.0-570.106.1.el9_6.x86_64",
@@ -19,7 +19,7 @@
       "dirty": true
     },
     "inputs": {
-      "requirements_txt": "/gpfs/home4/scur0505/TowardsSaferPretraining/requirements.txt",
+      "requirements_txt": "/redacted/home/anon-user/TowardsSaferPretraining/requirements.txt",
       "requirements_sha256": "2729117512db7d5f6210b52dd51adae92d458d8af83d402a7b58eccb76c6c94f"
     },
     "packages": {

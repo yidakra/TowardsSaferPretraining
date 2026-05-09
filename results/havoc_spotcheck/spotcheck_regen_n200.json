@@ -1,0 +1,40 @@
+{
+  "design": "regeneration",
+  "gen_model": "meta-llama/Llama-3.2-1B-Instruct",
+  "n": 200,
+  "sampled_toxic": 100,
+  "sampled_safe": 100,
+  "released_toxic_rate": 0.5,
+  "harmformer": {
+    "judge": "themendu/HarmFormer (independent architecture)",
+    "toxic_rate_on_regen": 0.205,
+    "agreement_vs_released": 0.635,
+    "cohen_kappa": 0.27,
+    "confusion": {
+      "tp": 34,
+      "fp": 7,
+      "fn": 66,
+      "tn": 93
+    },
+    "elapsed_s": 4.2
+  },
+  "llama_guard_3": {
+    "judge": "meta-llama/Llama-Guard-3-8B focused-prompt (independent pipeline)",
+    "toxic_rate_on_regen": 0.09,
+    "agreement_vs_released": 0.55,
+    "cohen_kappa": 0.1,
+    "confusion": {
+      "tp": 14,
+      "fp": 4,
+      "fn": 86,
+      "tn": 96
+    },
+    "elapsed_s": 21.5
+  },
+  "harmformer_vs_llama_guard": {
+    "agreement": 0.795,
+    "cohen_kappa": 0.2057
+  },
+  "gen_elapsed_s": 374.0,
+  "seed": 42
+}

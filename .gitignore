@@ -83,8 +83,9 @@ datasets/samples/*.jsonl
 *.parquet.tmp
 archives/
 
-# Results (generated; do not version)
-results/
+# Results: per-sample TSVs, CodeCarbon CSVs, and per-run metric JSONs are
+# committed (after scrubbing via scripts/anonymize_results.py) so the public
+# mirror contains every artefact needed to verify reported numbers.
 
 # W&B local run cache (runs sync to cloud; local dir is just a cache)
 wandb/

@@ -1,0 +1,104 @@
+{
+  "run_metadata": {
+    "timestamp_utc": "2026-04-26T06:21:55.518662+00:00",
+    "user": "anon-user",
+    "hostname": "redacted-host",
+    "platform": {
+      "system": "Linux",
+      "release": "5.14.0-570.84.1.el9_6.x86_64",
+      "machine": "x86_64",
+      "python": "3.11.3"
+    },
+    "slurm": {
+      "job_id": "22251111",
+      "job_name": "lg_en",
+      "partition": "gpu_a100"
+    },
+    "git": {
+      "commit": "f08233bcc53fed36fe614f096fdf1aba8707e382",
+      "dirty": true
+    },
+    "inputs": {
+      "requirements_txt": "/redacted/home/anon-user/TowardsSaferPretraining/requirements.txt",
+      "requirements_sha256": "2729117512db7d5f6210b52dd51adae92d458d8af83d402a7b58eccb76c6c94f"
+    },
+    "packages": {
+      "torch": "2.11.0",
+      "transformers": "5.6.2",
+      "openai": "2.32.0",
+      "datasets": "4.8.4",
+      "accelerate": "1.13.0",
+      "scikit-learn": "1.8.0",
+      "codecarbon": "3.2.6",
+      "google-genai": "1.73.1",
+      "google-generativeai": "0.8.6"
+    }
+  },
+  "evaluation_config": {
+    "dataset": "data/TTP-Eval/TTPEval.tsv",
+    "total_samples": 393,
+    "dimension": "toxic",
+    "lang_filter": null,
+    "include_unknown_lang": false,
+    "setups": [
+      "Llama Guard"
+    ],
+    "device": "cuda",
+    "openai_model": "gpt-4o",
+    "openrouter_model": "openai/gpt-4o",
+    "gemini_model": "gemini-2.0-flash",
+    "prompt_path": "prompts/TTP/TTP.txt",
+    "perspective_threshold": 0.4,
+    "perspective_chunk_chars": 500,
+    "local_models": [],
+    "dtype": "auto",
+    "quantization": "none",
+    "invalid_policy": "exclude"
+  },
+  "results": [
+    {
+      "setup": "Llama Guard",
+      "total_samples": 393,
+      "failed_samples": 0,
+      "evaluated_samples": 393,
+      "metrics": {
+        "overall": {
+          "precision": 0.9545454545454546,
+          "recall": 0.22105263157894736,
+          "f1": 0.358974358974359
+        },
+        "per_harm": {
+          "H": {
+            "precision": 0.75,
+            "recall": 0.0967741935483871,
+            "f1": 0.1714285714285714
+          },
+          "IH": {
+            "precision": 0.3333333333333333,
+            "recall": 0.02857142857142857,
+            "f1": 0.05263157894736842
+          },
+          "SE": {
+            "precision": 0.9375,
+            "recall": 0.39473684210526316,
+            "f1": 0.5555555555555556
+          },
+          "IL": {
+            "precision": 0.4,
+            "recall": 0.14285714285714285,
+            "f1": 0.21052631578947364
+          },
+          "SI": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "dimension": "toxic",
+        "total_samples": 393
+      },
+      "invalid_policy": "exclude",
+      "client_stats": null
+    }
+  ]
+}

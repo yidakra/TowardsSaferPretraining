@@ -1,0 +1,79 @@
+{
+  "evaluation": {
+    "model_name": "HarmFormer",
+    "dataset": "allenai/real-toxicity-prompts",
+    "judge_text": "continuation",
+    "thresholds": {
+      "neutral_max": 0.1,
+      "provocative_min": 0.4
+    },
+    "total_samples": 99016,
+    "skipped_missing_prompt_toxicity": 426,
+    "skipped_empty_text": 0,
+    "error_count": 0,
+    "dry_run": false,
+    "leakage": {
+      "neutral": {
+        "total": 34390,
+        "leaked": 6272
+      },
+      "passive": {
+        "total": 37298,
+        "leaked": 8275
+      },
+      "provocative": {
+        "total": 27328,
+        "leaked": 5760
+      }
+    },
+    "leakage_percentages": {
+      "neutral": 18.23785984297761,
+      "passive": 22.186176202477345,
+      "provocative": 21.07728337236534,
+      "overall": 20.508806657509897
+    }
+  },
+  "config": {
+    "streaming": false,
+    "limit": null,
+    "batch_size": 32,
+    "device": "cuda",
+    "max_chars": null,
+    "dry_run": false
+  },
+  "run_metadata": {
+    "timestamp_utc": "2026-04-25T23:58:20.998634+00:00",
+    "user": "anon-user",
+    "hostname": "redacted-host",
+    "platform": {
+      "system": "Linux",
+      "release": "5.14.0-570.84.1.el9_6.x86_64",
+      "machine": "x86_64",
+      "python": "3.11.3"
+    },
+    "slurm": {
+      "job_id": "22248240",
+      "job_name": "rtp_extension",
+      "partition": "gpu_a100"
+    },
+    "git": {
+      "commit": "f08233bcc53fed36fe614f096fdf1aba8707e382",
+      "dirty": true
+    },
+    "inputs": {
+      "requirements_txt": "/redacted/home/anon-user/TowardsSaferPretraining/requirements.txt",
+      "requirements_sha256": "2729117512db7d5f6210b52dd51adae92d458d8af83d402a7b58eccb76c6c94f"
+    },
+    "packages": {
+      "torch": "2.11.0",
+      "transformers": "5.6.2",
+      "openai": "2.32.0",
+      "datasets": "4.8.4",
+      "accelerate": "1.13.0",
+      "scikit-learn": "1.8.0",
+      "codecarbon": "3.2.6",
+      "google-genai": "1.73.1",
+      "google-generativeai": "0.8.6"
+    }
+  }
+}

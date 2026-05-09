@@ -1,0 +1,93 @@
+{
+  "run_metadata": {
+    "timestamp_utc": "2026-05-08T23:06:08.573891+00:00",
+    "user": "anon-user",
+    "hostname": "redacted-host",
+    "platform": {
+      "system": "Linux",
+      "release": "5.14.0-570.112.1.el9_6.x86_64",
+      "machine": "x86_64",
+      "python": "3.11.3"
+    },
+    "slurm": {
+      "job_id": "22596935",
+      "job_name": "oaimod_multilingual",
+      "partition": "gpu_a100"
+    },
+    "git": {
+      "commit": "e37e2029aae4d2c23c15249d68b1a7d9ff5fbe62",
+      "dirty": true
+    },
+    "inputs": {
+      "requirements_txt": "/redacted/home/anon-user/TowardsSaferPretraining/requirements.txt",
+      "requirements_sha256": "2729117512db7d5f6210b52dd51adae92d458d8af83d402a7b58eccb76c6c94f"
+    },
+    "packages": {
+      "torch": "2.11.0",
+      "transformers": "5.6.2",
+      "openai": "2.32.0",
+      "datasets": "4.8.4",
+      "accelerate": "1.13.0",
+      "scikit-learn": "1.8.0",
+      "codecarbon": "3.2.6",
+      "google-genai": "1.73.1",
+      "google-generativeai": "0.8.6"
+    }
+  },
+  "evaluation_config": {
+    "dataset": "data/moderation-api-release/translated/nllb-200-3.3B/samples-1680_zho_Hans.jsonl.gz",
+    "total_samples": 1678,
+    "baselines": [
+      "HarmFormer"
+    ],
+    "perspective_threshold": 0.4,
+    "device": "cuda",
+    "invalid_policy": null
+  },
+  "results": [
+    {
+      "classifier": "HarmFormer",
+      "total_samples": 1678,
+      "failed_samples": 0,
+      "evaluated_samples": 1678,
+      "metrics": {
+        "overall": {
+          "precision": 0.5365853658536586,
+          "recall": 0.2950191570881226,
+          "f1": 0.380716934487021
+        },
+        "per_harm": {
+          "H": {
+            "precision": 1.0,
+            "recall": 0.0038314176245210726,
+            "f1": 0.007633587786259542
+          },
+          "IH": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "SE": {
+            "precision": 0.5763358778625954,
+            "recall": 0.289272030651341,
+            "f1": 0.3852040816326531
+          },
+          "IL": {
+            "precision": 0.13043478260869565,
+            "recall": 0.005747126436781609,
+            "f1": 0.011009174311926606
+          },
+          "SI": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "dimension": "toxic",
+        "total_samples": 1678
+      },
+      "invalid_policy": "exclude",
+      "client_stats": null
+    }
+  ]
+}

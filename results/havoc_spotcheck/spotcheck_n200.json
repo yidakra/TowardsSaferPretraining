@@ -1,0 +1,38 @@
+{
+  "n": 200,
+  "target_model": "llama_3b",
+  "response_col": "PrefixLlama3BResponse",
+  "label_col": "Llama3BLab",
+  "released_toxic_rate": 0.5,
+  "harmformer": {
+    "judge": "themendu/HarmFormer (same author family, independent architecture)",
+    "toxic_rate": 0.335,
+    "agreement_vs_released": 0.725,
+    "cohen_kappa": 0.45,
+    "confusion": {
+      "tp": 56,
+      "fp": 11,
+      "fn": 44,
+      "tn": 89
+    },
+    "elapsed_s": 4.4
+  },
+  "llama_guard_3": {
+    "judge": "meta-llama/Llama-Guard-3-8B focused-prompt (independent pipeline)",
+    "toxic_rate": 0.105,
+    "agreement_vs_released": 0.575,
+    "cohen_kappa": 0.15,
+    "confusion": {
+      "tp": 18,
+      "fp": 3,
+      "fn": 82,
+      "tn": 97
+    },
+    "elapsed_s": 23.3
+  },
+  "harmformer_vs_llama_guard": {
+    "agreement": 0.74,
+    "cohen_kappa": 0.2966
+  },
+  "seed": 42
+}

@@ -1,0 +1,47 @@
+{
+  "per_language": {
+    "es": {
+      "n_aligned": 393,
+      "bleu": 0.98,
+      "chrf": 10.96,
+      "elapsed_s": 821.2,
+      "bt_tsv": "results/back_translation/back_translated_es.tsv"
+    },
+    "fr": {
+      "n_aligned": 393,
+      "bleu": 0.55,
+      "chrf": 9.99,
+      "elapsed_s": 781.9,
+      "bt_tsv": "results/back_translation/back_translated_fr.tsv"
+    },
+    "de": {
+      "n_aligned": 393,
+      "bleu": 0.84,
+      "chrf": 11.27,
+      "elapsed_s": 796.1,
+      "bt_tsv": "results/back_translation/back_translated_de.tsv"
+    },
+    "ar": {
+      "n_aligned": 393,
+      "bleu": 0.45,
+      "chrf": 8.82,
+      "elapsed_s": 785.9,
+      "bt_tsv": "results/back_translation/back_translated_ar.tsv"
+    },
+    "hi": {
+      "n_aligned": 393,
+      "bleu": 0.64,
+      "chrf": 10.7,
+      "elapsed_s": 774.2,
+      "bt_tsv": "results/back_translation/back_translated_hi.tsv"
+    },
+    "zh": {
+      "n_aligned": 393,
+      "bleu": 0.35,
+      "chrf": 8.53,
+      "elapsed_s": 792.9,
+      "bt_tsv": "results/back_translation/back_translated_zh.tsv"
+    }
+  },
+  "model": "facebook/nllb-200-3.3B"
+}
