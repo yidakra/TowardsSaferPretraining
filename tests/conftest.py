@@ -46,9 +46,17 @@ def harmformer_availability():
 
 
 @pytest.fixture(autouse=True)
-def require_model(request, harmformer_availability):
-    """Skip tests marked with requires_model if model cannot be loaded."""
+def require_model(request):
+    """Skip tests marked with requires_model if the model cannot be loaded.
+
+    The HarmFormer instance is resolved lazily via ``getfixturevalue`` and ONLY
+    for tests that actually carry the marker. Taking ``harmformer_availability``
+    as a direct parameter here would make this autouse fixture build HarmFormer
+    on the very first test collected — downloading ~2GB of weights before any
+    test runs and hanging the entire suite on a slow/offline network.
+    """
     if request.node.get_closest_marker("requires_model"):
+        harmformer_availability = request.getfixturevalue("harmformer_availability")
         if isinstance(harmformer_availability, Exception):
             pytest.skip(f"Model not available: {harmformer_availability}")
         # If harmformer_availability is a HarmFormer instance, the model is available, so continue
