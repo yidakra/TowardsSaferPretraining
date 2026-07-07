@@ -60,6 +60,7 @@ class OpenAITTPClient:
         max_retries: int = 3,
         retry_delay: float = 1.0,
         fail_open: bool = True,
+        seed: Optional[int] = None,
     ):
         self.client = OpenAI(api_key=api_key)
         self.model = model
@@ -67,6 +68,11 @@ class OpenAITTPClient:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.fail_open = fail_open
+        # Optional deterministic-decoding request. OpenAI/OpenRouter accept `seed`;
+        # combined with the `system_fingerprint` tally below this lets a re-run assert
+        # "same seed, same backend snapshot" and attribute any residual drift to the
+        # provider silently swapping the model behind a floating alias.
+        self.seed = seed
 
         prompt_file = Path(prompt_path)
         if not prompt_file.exists():
@@ -79,6 +85,12 @@ class OpenAITTPClient:
         self.total_requests = 0
         self.total_tokens = 0
         self.failed_requests = 0
+        # Distinct backend snapshots seen, as {system_fingerprint: count}. OpenAI
+        # returns `system_fingerprint` per completion; it changes when the served
+        # snapshot changes, so >1 distinct value across a run (or a differing value
+        # between two runs) is direct evidence of the snapshot drift the paper argues.
+        # Providers that omit the field (e.g. some OpenRouter routes) bucket under "".
+        self.system_fingerprints: Dict[str, int] = {}
 
     def _parse_prompt_template(self) -> None:
         """
@@ -132,11 +144,16 @@ class OpenAITTPClient:
 
         for attempt in range(self.max_retries):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=self._prefix_messages + [{"role": "user", "content": user_message}],
-                    temperature=self.temperature,
-                )
+                create_kwargs: Dict[str, Any] = {
+                    "model": self.model,
+                    "messages": self._prefix_messages + [{"role": "user", "content": user_message}],
+                    "temperature": self.temperature,
+                }
+                # Only send `seed` when explicitly requested, so the default path stays
+                # byte-identical to prior runs that never passed the parameter.
+                if self.seed is not None:
+                    create_kwargs["seed"] = self.seed
+                response = self.client.chat.completions.create(**create_kwargs)
 
                 self.total_requests += 1
 
@@ -146,6 +163,10 @@ class OpenAITTPClient:
                     and response.usage.total_tokens is not None
                 ):
                     self.total_tokens += response.usage.total_tokens
+
+                # Record which backend snapshot served this completion.
+                fingerprint = getattr(response, "system_fingerprint", None) or ""
+                self.system_fingerprints[fingerprint] = self.system_fingerprints.get(fingerprint, 0) + 1
 
                 content = None
                 if (
@@ -284,6 +305,13 @@ class OpenAITTPClient:
             "total_requests": self.total_requests,
             "failed_requests": self.failed_requests,
             "total_tokens": self.total_tokens,
+            "seed": self.seed,
+            # {fingerprint: count} of backend snapshots seen; ">1 key" or a value that
+            # differs from a prior run is the snapshot-drift smoking gun.
+            "system_fingerprints": dict(self.system_fingerprints),
+            "distinct_system_fingerprints": len(
+                [fp for fp in self.system_fingerprints if fp]
+            ),
         }
 
 

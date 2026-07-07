@@ -37,6 +37,7 @@ class OpenRouterTTPClient(OpenAITTPClient):
         base_url: str = DEFAULT_BASE_URL,
         referer: Optional[str] = None,
         title: Optional[str] = None,
+        seed: Optional[int] = None,
     ):
         super().__init__(
             api_key=api_key,
@@ -46,6 +47,7 @@ class OpenRouterTTPClient(OpenAITTPClient):
             max_retries=max_retries,
             retry_delay=retry_delay,
             fail_open=fail_open,
+            seed=seed,
         )
 
         headers: Dict[str, str] = {}

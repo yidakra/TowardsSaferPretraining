@@ -252,6 +252,15 @@ def main() -> int:
         help="Path to TTP prompt file (ChatML format)",
     )
 
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional decoding seed forwarded to OpenAI/OpenRouter TTP setups. "
+        "Combined with the per-run system_fingerprint tally, lets a re-run assert "
+        "same-seed/same-snapshot and attribute residual drift to the provider.",
+    )
+
     # OpenRouter (OpenAI-compatible)
     p.add_argument("--openrouter-key", help="OpenRouter API key (or set OPENROUTER_API_KEY)")
     p.add_argument("--openrouter-model", default=os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o"))
@@ -345,6 +354,7 @@ def main() -> int:
                         model=args.openai_model,
                         prompt_path=args.prompt_path,
                         fail_open=fail_open,
+                        seed=args.seed,
                     ),
                 )
             )
@@ -364,6 +374,7 @@ def main() -> int:
                         referer=args.openrouter_referer,
                         title=args.openrouter_title,
                         fail_open=fail_open,
+                        seed=args.seed,
                     ),
                 )
             )
@@ -431,6 +442,7 @@ def main() -> int:
                 "dtype": args.dtype,
                 "quantization": args.quantization,
                 "invalid_policy": args.invalid_policy,
+                "seed": args.seed,
             },
             "results": results,
         }
